@@ -57,15 +57,14 @@ def get_movie_details(tmdb_id: int) -> dict:
     origin_countries = data.get("origin_country", [])
     origin_country = origin_countries[0] if origin_countries else ""
 
-    release_year = ""
-    rd = data.get("release_date", "")
-    if rd:
-        release_year = rd[:4]
+    release_date = data.get("release_date", "")  # full YYYY-MM-DD
+    release_year = release_date[:4] if release_date else ""
 
     return {
         "tmdb_id": tmdb_id,
         "imdb_id": data.get("imdb_id", ""),
         "title": data.get("title", ""),
+        "release_date": release_date,
         "release_year": release_year,
         "genres": [g["name"] for g in data.get("genres", [])],
         "director": ", ".join(directors),

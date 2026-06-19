@@ -135,13 +135,13 @@ def main():
                 details = get_movie_details(tmdb_id)
             except Exception as exc:
                 logger.warning("TMDB details failed for tmdb_id=%s: %s", tmdb_id, exc)
-                details = {"tmdb_id": tmdb_id, "imdb_id": "", "title": bom_title, "release_year": ""}
+                details = {"tmdb_id": tmdb_id, "imdb_id": "", "title": bom_title, "release_date": "", "release_year": ""}
             row = {
                 "tmdb_id": tmdb_id,
                 "imdb_id": details.get("imdb_id", ""),
                 "canonical_title": details.get("title", bom_title),
                 "bom_title_seen": bom_title,
-                "release_date": str(details.get("release_year", "")),
+                "release_date": details.get("release_date", "") or details.get("release_year", ""),
                 "first_seen": str(today),
                 "last_seen": str(today),
                 "status": "active",
