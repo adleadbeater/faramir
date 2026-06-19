@@ -209,19 +209,25 @@ def select_picks(payload: dict) -> list[dict]:
         text = text.strip()
 
         # Strip markdown code fences if present
-        if text.startswith("```"):
-            lines = text.split("\n")
-            end = -1 if lines[-1].strip() == "```" else len(lines)
-            text = "\n".join(lines[1:end]).strip()
+        if "```" in text:
+            import re as _re
+            m = _re.search(r"```(?:json)?\s*([\s\S]+?)```", text)
+            if m:
+                text = m.group(1).strip()
 
-        # If the response starts with prose, extract the JSON object.
-        # Find the first { that opens a top-level object.
-        if not text.startswith("{") and not text.startswith("["):
-            start = text.find('{"picks"')
-            if start == -1:
-                start = text.rfind("{")  # last { as fallback
-            if start != -1:
-                text = text[start:]
+        # Extract JSON by finding the outermost { ... } block.
+        # This handles prose before and/or after the JSON.
+        brace_start = text.find("{")
+        if brace_start != -1:
+            depth = 0
+            for i, ch in enumerate(text[brace_start:], start=brace_start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        text = text[brace_start:i + 1]
+                        break
 
         data = json.loads(text)
         if isinstance(data, dict) and "picks" in data:
@@ -233,7 +239,7 @@ def select_picks(payload: dict) -> list[dict]:
     for attempt in range(2):
         try:
             raw = _call()
-            logger.info("Claude raw response (first 300 chars): %s", raw[:300])
+            logger.info("Claude raw response (first 1000 chars): %s", raw[:1000])
             picks = _parse(raw)
             picks = _validate_picks(picks, payload)
             logger.info("select_picks attempt %d: %d valid picks", attempt + 1, len(picks))
