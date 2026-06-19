@@ -76,7 +76,8 @@ Avoid generic studio-speak. Write like a film journalist with a strong POV.
 
 ## Output format
 
-Return a JSON object only — no preamble, no markdown fences:
+Return a JSON object ONLY. Do not write any analysis, reasoning, or prose before or after the JSON.
+Your entire response must be valid JSON starting with { and ending with }. No markdown fences:
 {
   "picks": [
     {
@@ -206,10 +207,22 @@ def select_picks(payload: dict) -> list[dict]:
 
     def _parse(text: str) -> list[dict]:
         text = text.strip()
+
+        # Strip markdown code fences if present
         if text.startswith("```"):
             lines = text.split("\n")
             end = -1 if lines[-1].strip() == "```" else len(lines)
-            text = "\n".join(lines[1:end])
+            text = "\n".join(lines[1:end]).strip()
+
+        # If the response starts with prose, extract the JSON object.
+        # Find the first { that opens a top-level object.
+        if not text.startswith("{") and not text.startswith("["):
+            start = text.find('{"picks"')
+            if start == -1:
+                start = text.rfind("{")  # last { as fallback
+            if start != -1:
+                text = text[start:]
+
         data = json.loads(text)
         if isinstance(data, dict) and "picks" in data:
             return data["picks"]
