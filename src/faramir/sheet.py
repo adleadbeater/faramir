@@ -39,6 +39,11 @@ SUGGESTIONS_HEADERS = [
     "headline",
     "angle",
     "richness_score",
+    "slack_ts",
+    "thumbs_up",
+    "thumbs_down",
+    "thread_replies",
+    "thread_feedback",
 ]
 
 
@@ -100,6 +105,20 @@ def append_suggestions(client: gspread.Client, sheet_id: str, rows: list[dict]) 
     for row in rows:
         ws.append_row([str(row.get(h, "")) for h in SUGGESTIONS_HEADERS])
     logger.info("append_suggestions: appended %d rows", len(rows))
+
+
+def write_suggestions(client: gspread.Client, sheet_id: str, rows: list[dict]) -> None:
+    """Overwrite the full suggestions tab (used when updating rows with feedback)."""
+    if not rows:
+        return
+    sh = client.open_by_key(sheet_id)
+    ws = sh.worksheet("suggestions")
+    ws.clear()
+    data = [SUGGESTIONS_HEADERS]
+    for row in rows:
+        data.append([str(row.get(h, "")) for h in SUGGESTIONS_HEADERS])
+    ws.update("A1", data)
+    logger.info("write_suggestions: wrote %d rows", len(rows))
 
 
 def append_corpus_meta(client: gspread.Client, sheet_id: str, row: dict) -> None:

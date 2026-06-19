@@ -35,10 +35,14 @@ def main():
     from faramir.claude_select import build_payload, select_picks
     from faramir.slack_post import post_header, post_pick, post_init, post_failure
     from faramir.tmdb import resolve_tmdb_id, get_movie_details
+    from faramir.feedback import collect_feedback
+    from faramir.sheet import write_suggestions
 
     sheet_id = os.environ["FARAMIR_SHEET_ID"]
     cerebro_sheet_id = os.environ.get("CEREBRO_MW_SHEET_ID", "")
     slack_url = os.environ["SLACK_WEBHOOK_URL"]
+    slack_bot_token = os.environ.get("SLACK_BOT_TOKEN", "")
+    slack_channel_id = os.environ.get("SLACK_CHANNEL_ID", "")
     workflow_url = os.environ.get("GITHUB_WORKFLOW_URL", "")
 
     today = date.today()
@@ -49,6 +53,19 @@ def main():
 
     # Step 1: Connect to sheets
     gc = get_sheet_client()
+
+    # Step 1b: Collect feedback on yesterday's picks (before anything else)
+    if slack_bot_token and slack_channel_id:
+        try:
+            all_suggestions = read_suggestions(gc, sheet_id)
+            updated = collect_feedback(slack_bot_token, slack_channel_id, all_suggestions, yesterday)
+            if updated != all_suggestions:
+                write_suggestions(gc, sheet_id, updated)
+                logger.info("Feedback collected and written for %s", yesterday)
+        except Exception as exc:
+            logger.warning("Feedback collection failed (non-fatal): %s", exc)
+    else:
+        logger.info("SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set — skipping feedback collection")
 
     # Step 2: Load state tab — detect cold start
     state_rows = read_state(gc, sheet_id)
@@ -318,7 +335,13 @@ def main():
         comp_film = corpus_by_tmdb.get(comp_tmdb) if comp_tmdb else None
         active_tmdb = pick.get("active_tmdb_id")
         active_film_match = next((f for f in enriched_active if f.get("tmdb_id") == active_tmdb), {})
-        post_pick(slack_url, pick, active_film_match, comp_film)
+
+        slack_ts = None
+        if slack_bot_token and slack_channel_id:
+            slack_ts = post_pick(slack_bot_token, slack_channel_id, pick, active_film_match, comp_film)
+        else:
+            logger.warning("No SLACK_BOT_TOKEN/SLACK_CHANNEL_ID — pick not posted to Slack")
+
         suggestion_rows.append({
             "run_date": str(today),
             "active_tmdb_id": pick.get("active_tmdb_id", ""),
@@ -332,6 +355,11 @@ def main():
             "headline": pick.get("headline", ""),
             "angle": pick.get("angle", ""),
             "richness_score": pick.get("richness_score", ""),
+            "slack_ts": slack_ts or "",
+            "thumbs_up": "",
+            "thumbs_down": "",
+            "thread_replies": "",
+            "thread_feedback": "",
         })
 
     # Step 13: Write state and log suggestions

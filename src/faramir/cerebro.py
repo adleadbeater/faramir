@@ -9,10 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 def load_cerebro(sheet_client, cerebro_sheet_id: str, lookback_days: int = SIGNAL_LOOKBACK_DAYS) -> list[dict]:
-    """Read DB tab from Cerebro sheet. Return list of article dicts."""
+    """Read MovieWeb Article Analysis tab from Cerebro sheet. Return list of article dicts."""
     try:
         sh = sheet_client.open_by_key(cerebro_sheet_id)
-        ws = sh.worksheet("DB")
+        ws = sh.worksheet("MovieWeb Article Analysis")
         records = ws.get_all_records()
     except Exception as exc:
         logger.error("load_cerebro failed: %s", exc)
