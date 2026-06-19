@@ -132,6 +132,43 @@ def _validate_picks(picks: list[dict], payload: dict) -> list[dict]:
     return valid
 
 
+def _slim_payload(payload: dict) -> dict:
+    """Trim candidate dicts to only the fields Claude needs, reducing payload size."""
+    slim = {k: v for k, v in payload.items() if k != "active_films"}
+    slim_films = []
+    for film in payload.get("active_films", []):
+        slim_candidates = []
+        for c in film.get("candidates", []):
+            comp = c.get("comp") or {}
+            slim_candidates.append({
+                "kind": c.get("kind"),
+                "axis": c.get("axis"),
+                "threshold_value": c.get("threshold_value"),
+                "richness_score": c.get("richness_score"),
+                "suppressed": c.get("suppressed", False),
+                "angle_categories": c.get("angle_categories", []),
+                "comp": {
+                    "tmdb_id": comp.get("tmdb_id"),
+                    "title": comp.get("title"),
+                    "release_year": comp.get("release_year"),
+                    "domestic_lifetime": comp.get("domestic_lifetime"),
+                    "worldwide_lifetime": comp.get("worldwide_lifetime"),
+                    "director": comp.get("director"),
+                    "lead_cast": (comp.get("lead_cast") or [])[:3],
+                    "genres": comp.get("genres"),
+                    "collection_name": comp.get("collection_name"),
+                    "is_best_picture": comp.get("is_best_picture"),
+                    "is_classic": comp.get("is_classic"),
+                } if comp else None,
+                "signals": c.get("signals"),
+            })
+        slim_film = {k: v for k, v in film.items() if k != "candidates"}
+        slim_film["candidates"] = slim_candidates
+        slim_films.append(slim_film)
+    slim["active_films"] = slim_films
+    return slim
+
+
 def select_picks(payload: dict) -> list[dict]:
     """Call Claude, parse response, validate picks, return list of pick dicts.
 
@@ -140,12 +177,12 @@ def select_picks(payload: dict) -> list[dict]:
     can post a degraded Slack message.
     """
     client = anthropic.Anthropic()
-    user_message = json.dumps(payload, indent=2, default=str)
+    user_message = json.dumps(_slim_payload(payload), default=str)
 
     def _call() -> str:
         response = client.messages.create(
             model=SELECTION_MODEL,
-            max_tokens=SELECTION_MAX_TOKENS,
+            max_tokens=4096,
             system=[
                 {
                     "type": "text",
@@ -155,7 +192,17 @@ def select_picks(payload: dict) -> list[dict]:
             ],
             messages=[{"role": "user", "content": user_message}],
         )
-        return response.content[0].text
+        logger.info(
+            "Claude response: stop_reason=%s content_blocks=%d",
+            response.stop_reason,
+            len(response.content),
+        )
+        if not response.content:
+            raise ValueError("Claude returned no content blocks")
+        text = response.content[0].text
+        if not text.strip():
+            raise ValueError(f"Claude returned empty text (stop_reason={response.stop_reason})")
+        return text
 
     def _parse(text: str) -> list[dict]:
         text = text.strip()
@@ -173,6 +220,7 @@ def select_picks(payload: dict) -> list[dict]:
     for attempt in range(2):
         try:
             raw = _call()
+            logger.info("Claude raw response (first 300 chars): %s", raw[:300])
             picks = _parse(raw)
             picks = _validate_picks(picks, payload)
             logger.info("select_picks attempt %d: %d valid picks", attempt + 1, len(picks))
