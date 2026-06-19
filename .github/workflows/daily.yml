@@ -1,0 +1,27 @@
+name: Faramir Daily
+on:
+  schedule:
+    - cron: '0 13 * * *'   # 8am ET (13:00 UTC during DST; accept seasonal hour drift in standard time)
+  workflow_dispatch:        # manual trigger button
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/run_daily.py
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+          FARAMIR_SHEET_ID: ${{ secrets.FARAMIR_SHEET_ID }}
+          CEREBRO_MW_SHEET_ID: ${{ secrets.CEREBRO_MW_SHEET_ID }}
