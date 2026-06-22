@@ -1,7 +1,7 @@
 name: Faramir Daily
 on:
   schedule:
-    - cron: '0 13 * * *'   # 8am ET (13:00 UTC during DST; accept seasonal hour drift in standard time)
+    - cron: '0 15 * * *'   # 10am ET (15:00 UTC during EDT; drifts to 10am EST in winter)
   workflow_dispatch:        # manual trigger button
 
 jobs:
