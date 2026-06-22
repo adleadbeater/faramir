@@ -255,15 +255,22 @@ def main():
         except ValueError:
             continue
         if run_d >= suppress_cutoff:
-            comp_id = s.get("comp_tmdb_id")
-            threshold = s.get("threshold_value")
-            if comp_id:
-                suppressed_pairs.add((
-                    int(s.get("active_tmdb_id") or 0),
-                    int(comp_id),
-                    s.get("axis", ""),
-                ))
-            elif threshold:
+            raw_comp_id = s.get("comp_tmdb_id", "")
+            threshold = s.get("threshold_value", "")
+            # Sheets may store Python None as the literal string "None" — treat that as absent
+            comp_id_str = str(raw_comp_id).strip() if raw_comp_id is not None else ""
+            if comp_id_str in ("", "None", "0"):
+                comp_id_str = ""
+            if comp_id_str:
+                try:
+                    suppressed_pairs.add((
+                        int(s.get("active_tmdb_id") or 0),
+                        int(comp_id_str),
+                        s.get("axis", ""),
+                    ))
+                except ValueError:
+                    pass
+            elif threshold and str(threshold).strip() not in ("", "None"):
                 # milestone suppression key uses 0 for comp_tmdb_id
                 suppressed_pairs.add((
                     int(s.get("active_tmdb_id") or 0),

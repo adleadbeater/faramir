@@ -78,17 +78,20 @@ def detect_angle_categories(active_film: dict, comp: dict, corpus: list[dict]) -
         if any(f.get("tmdb_id") == comp_tmdb for f in genre_top):
             categories.append("genre_milestone")
 
-    # Unexpected giant killer: no overlap on franchise/director/cast/genre AND comp is notable
+    # Unexpected giant killer: no franchise/director/cast connection AND comp is notable.
+    # Genre overlap is intentionally NOT a disqualifier — a horror film passing a
+    # sci-fi blockbuster shares "Adventure" in both genre lists but is still a
+    # genuine giant-killer story. The editorial test is: no creative through-line,
+    # and the comp is famous enough to surprise a casual moviegoer.
     no_franchise_overlap = not (active_coll and comp_coll and active_coll == comp_coll)
     no_director_overlap = not (active_dirs & comp_dirs)
     no_cast_overlap = not (active_cast & comp_cast)
-    no_genre_overlap = not (active_genres & comp_genres)
     comp_notable = (
         comp.get("worldwide_lifetime", 0) > 500_000_000
         or comp.get("is_best_picture", False)
         or comp.get("is_classic", False)
     )
-    if no_franchise_overlap and no_director_overlap and no_cast_overlap and no_genre_overlap and comp_notable:
+    if no_franchise_overlap and no_director_overlap and no_cast_overlap and comp_notable:
         categories.append("unexpected_giant_killer")
 
     return categories

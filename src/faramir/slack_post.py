@@ -82,7 +82,7 @@ def post_pick(
 
     def fmt_money(val):
         if not val:
-            return "N/A"
+            return "—"
         val = int(val)
         if val >= 1_000_000_000:
             return f"${val / 1_000_000_000:.2f}B"
@@ -92,39 +92,74 @@ def post_pick(
 
     headline = pick.get("headline", "")
     angle = pick.get("angle", "")
-    axis = pick.get("axis", "")
+    axis = pick.get("axis", "domestic")
     kind = pick.get("kind", "")
     category = pick.get("angle_category", "")
     threshold = pick.get("threshold_value")
     active_title = pick.get("active_title") or active_film.get("canonical_title", "")
     comp_title = pick.get("comp_title") or (comp_film.get("title") if comp_film else "—")
+    comp_year = comp_film.get("release_year", "") if comp_film else ""
 
-    axis_label = "dom" if axis == "domestic" else "WW"
-    active_gross = active_film.get("domestic_today") if axis == "domestic" else active_film.get("worldwide_today")
-    comp_gross = comp_film.get("domestic_lifetime") if (comp_film and axis == "domestic") else (comp_film.get("worldwide_lifetime") if comp_film else None)
+    # Active film grosses
+    active_dom = fmt_money(active_film.get("domestic_today"))
+    active_ww = fmt_money(active_film.get("worldwide_today"))
+
+    # Meta tag line: category · kind · axis
+    kind_label = kind.replace("_", " ").title() if kind != "milestone" else "Milestone"
+    category_label = category.replace("_", " ").title()
+    axis_label = axis.capitalize()
+    meta = f"{category_label}  ·  {kind_label}  ·  {axis_label}"
 
     if threshold:
-        numbers_text = f"Crossed {fmt_money(threshold)} {axis_label} today"
+        # Milestone pick: no comp film
+        numbers_block = {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"*{active_title}*\nDom: {active_dom}  ·  WW: {active_ww}",
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": f"*Milestone crossed*\n{fmt_money(threshold)} {axis_label}",
+                },
+            ],
+        }
     elif comp_film:
-        numbers_text = f"{fmt_money(active_gross)} {axis_label} now · {fmt_money(comp_gross)} {axis_label} lifetime for _{comp_title}_"
+        comp_dom = fmt_money(comp_film.get("domestic_lifetime"))
+        comp_ww = fmt_money(comp_film.get("worldwide_lifetime"))
+        comp_label = f"{comp_title} ({comp_year})" if comp_year else comp_title
+        numbers_block = {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"*{active_title}* (now)\nDom: {active_dom}  ·  WW: {active_ww}",
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": f"*{comp_label}* (lifetime)\nDom: {comp_dom}  ·  WW: {comp_ww}",
+                },
+            ],
+        }
     else:
-        numbers_text = f"{fmt_money(active_gross)} {axis_label} now"
+        numbers_block = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*{active_title}*  Dom: {active_dom}  ·  WW: {active_ww}",
+            },
+        }
 
     blocks = [
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": f"*{headline}*"},
         },
+        numbers_block,
         {
-            "type": "section",
-            "fields": [
-                {"type": "mrkdwn", "text": f"*Film:*\n{active_title}"},
-                {"type": "mrkdwn", "text": f"*Comp:*\n{comp_title}"},
-                {"type": "mrkdwn", "text": f"*Axis:*\n{axis.capitalize()}"},
-                {"type": "mrkdwn", "text": f"*Kind:*\n{kind.replace('_', ' ').title()}"},
-                {"type": "mrkdwn", "text": f"*Category:*\n{category.replace('_', ' ').title()}"},
-                {"type": "mrkdwn", "text": f"*Numbers:*\n{numbers_text}"},
-            ],
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": meta}],
         },
         {
             "type": "section",

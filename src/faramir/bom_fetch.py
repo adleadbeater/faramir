@@ -104,6 +104,9 @@ def fetch_daily_list(target_date: date) -> list[dict]:
             title = find_col(cells, "movie", "title", "film")
         if not title:
             continue
+        # Skip footer/summary rows injected by The Numbers (e.g. "Reporting movies: 17")
+        if re.search(r"^reporting\b", title, re.I):
+            continue
 
         gross_to_date = _clean_money(find_col(cells, "total gross", "total", "cumulative", "to date"))
         daily_gross = _clean_money(find_col(cells, "gross", "daily", "weekend"))

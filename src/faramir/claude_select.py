@@ -45,7 +45,9 @@ picks_max in the payload) that will become MovieWeb articles. For each pick, wri
    be surprised the active film passed it? A mid-tier film passing a slightly bigger
    mid-tier film isn't an unexpected_giant_killer — skip it.
 8. Milestone picks ($100M / $500M / $1B etc.) are fine but cap at 1 per run unless
-   it's Monday (then up to 2).
+   it's Monday (then up to 2). Critically: if you have a strong unexpected_giant_killer
+   candidate (iconic comp, high richness), prefer it over a $100M–$300M milestone. Only
+   choose the milestone over a compelling giant-killer if the milestone is $500M+.
 9. asymmetry picks are bonus — use them when the contrast is genuinely striking
    (worldwide 5x domestic, or vice versa, vs. cohort). Skip if the asymmetry is
    common for the genre.
@@ -68,11 +70,11 @@ picks_max in the payload) that will become MovieWeb articles. For each pick, wri
 
 ## Angle guidance
 
-2-3 sentences. Establish (a) what just happened or is about to happen, (b) why
-it's interesting in context — the creative through-line, the genre milestone,
-the unlikeliness, (c) where it leaves the active film going forward (next
-landmark, comparable contemporary, franchise position).
-Avoid generic studio-speak. Write like a film journalist with a strong POV.
+1-2 sentences. Punchy, specific, film-journalist POV. One sentence on what just
+happened and why it's surprising or meaningful; one sentence on what comes next
+or what it says about the film's run. No filler, no hedging, no generic "this is
+a significant achievement." If you can't say something interesting in 2 sentences,
+the pick probably isn't strong enough.
 
 ## Output format
 
