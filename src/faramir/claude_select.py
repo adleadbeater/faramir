@@ -200,6 +200,14 @@ def select_picks(payload: dict) -> list[dict]:
             response.stop_reason,
             len(response.content),
         )
+        u = response.usage
+        logger.info(
+            "claude_usage input=%s output=%s cache_created=%s cache_read=%s",
+            u.input_tokens,
+            u.output_tokens,
+            getattr(u, "cache_creation_input_tokens", 0),
+            getattr(u, "cache_read_input_tokens", 0),
+        )
         if not response.content:
             raise ValueError("Claude returned no content blocks")
         text = response.content[0].text
