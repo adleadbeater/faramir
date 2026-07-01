@@ -7,6 +7,7 @@ from datetime import date
 import anthropic
 
 from faramir.config import SELECTION_MODEL, SELECTION_MAX_TOKENS
+from faramir.sheet import buffer_usage
 
 logger = logging.getLogger(__name__)
 
@@ -201,12 +202,22 @@ def select_picks(payload: dict) -> list[dict]:
             len(response.content),
         )
         u = response.usage
+        cache_created = getattr(u, "cache_creation_input_tokens", 0)
+        cache_read = getattr(u, "cache_read_input_tokens", 0)
         logger.info(
             "claude_usage input=%s output=%s cache_created=%s cache_read=%s",
             u.input_tokens,
             u.output_tokens,
-            getattr(u, "cache_creation_input_tokens", 0),
-            getattr(u, "cache_read_input_tokens", 0),
+            cache_created,
+            cache_read,
+        )
+        buffer_usage(
+            call_label="select_picks",
+            input_tokens=u.input_tokens,
+            output_tokens=u.output_tokens,
+            cache_created=cache_created,
+            cache_read=cache_read,
+            model=SELECTION_MODEL,
         )
         if not response.content:
             raise ValueError("Claude returned no content blocks")

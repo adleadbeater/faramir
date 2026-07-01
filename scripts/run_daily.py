@@ -31,6 +31,7 @@ def main():
         write_state,
         read_suggestions,
         append_suggestions,
+        flush_usage_to_sheet,
     )
     from faramir.claude_select import build_payload, select_picks
     from faramir.slack_post import post_header, post_pick, post_init, post_failure
@@ -374,6 +375,10 @@ def main():
         append_suggestions(gc, sheet_id, suggestion_rows)
 
     write_state(gc, sheet_id, list(new_state.values()))
+
+    # Step 14: Flush Claude usage records to the Usage sheet tab (fails open)
+    flush_usage_to_sheet(gc, sheet_id)
+
     logger.info("=== Faramir complete: %d picks logged ===", len(picks))
 
 
