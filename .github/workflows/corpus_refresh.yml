@@ -7,7 +7,7 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -30,5 +30,5 @@ jobs:
           git config user.name "faramir-bot"
           git config user.email "faramir-bot@users.noreply.github.com"
           git add data/corpus.json
-          git diff --staged --quiet || git commit -m "corpus refresh $(date -I)"
+          git diff --staged --quiet || git commit -m "corpus refresh $(date -I) [skip ci]"
           git push
