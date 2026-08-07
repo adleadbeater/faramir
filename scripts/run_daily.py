@@ -79,9 +79,23 @@ def main():
             pass
 
     # Step 3: Fetch BOM daily data (and weekend on Mondays)
+    # The Numbers sometimes lags 1-2 days; fall back to the day before yesterday
+    # if yesterday's page returns a 404 or empty result.
     daily = fetch_daily_list(yesterday)
+    bom_date_used = yesterday
     if not daily:
-        raise RuntimeError(f"No daily BOM data returned for {yesterday} — aborting")
+        two_days_ago = today - timedelta(days=2)
+        logger.warning(
+            "No daily data for %s — falling back to %s", yesterday, two_days_ago
+        )
+        daily = fetch_daily_list(two_days_ago)
+        bom_date_used = two_days_ago
+    if not daily:
+        raise RuntimeError(
+            f"No daily BOM data for {yesterday} or {two_days_ago} — aborting"
+        )
+    if bom_date_used != yesterday:
+        logger.info("Using BOM data from %s (yesterday unavailable)", bom_date_used)
 
     if is_monday:
         iso = yesterday.isocalendar()
