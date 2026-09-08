@@ -416,6 +416,17 @@ def main():
 
         all_film_candidates = film_candidates + film_milestones
 
+        # Does this active film itself carry a Cerebro signal (director, lead
+        # cast, or franchise already flagged as high-traffic)? This is the
+        # only input to editorial "importance" tiering — no fixed film list.
+        film_dirs = [d.strip() for d in (film.get("director") or "").split(",") if d.strip()]
+        film_cast = (film.get("lead_cast") or [])[:3]
+        film_collection = film.get("collection_name")
+        signal_names = film_dirs + film_cast + ([film_collection] if film_collection else [])
+        active_film_is_signal = any(
+            cerebro_signals.get(name, {}).get("is_signal") for name in signal_names
+        )
+
         active_films_payload.append({
             "tmdb_id": fid,
             "title": film.get("canonical_title") or film.get("title"),
@@ -431,6 +442,7 @@ def main():
             "domestic_today": film.get("domestic_today", 0),
             "worldwide_yesterday": film.get("worldwide_yesterday", 0),
             "worldwide_today": film.get("worldwide_today"),
+            "is_signal": active_film_is_signal,
             "candidates": all_film_candidates,
         })
 

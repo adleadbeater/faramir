@@ -24,38 +24,79 @@ picks_max in the payload) that will become MovieWeb articles. For each pick, wri
 
 ## Selection rules
 
-1. Pick picks_target unless fewer non-suppressed candidates exist with richness >= 6.
-   - Monday: hard target of 6. If fewer than 6 quality candidates exist, return all of them.
-   - Tue-Fri: target is 4 but you have discretion to return 2, 3, or 4 based on slate
-     quality. Don't manufacture picks. If only 2 strong angles exist, return 2.
-   - Sat-Sun: hard target of 2.
+1. picks_target/picks_min/picks_max define a ceiling and a floor, not a quota to
+   hit. Rank all non-suppressed candidates across the ENTIRE slate (all active
+   films together, not per-film) by how good the story is, and fill from the top
+   down to picks_max. Stop early — anywhere between picks_min and picks_max — the
+   moment quality drops off. Never pad with a weak candidate just to reach
+   picks_target. picks_min is a floor only if that many genuinely earn a slot;
+   it is not a guarantee.
+   - Monday: ceiling of 6.
+   - Tue-Fri: ceiling of 4.
+   - Sat-Sun: ceiling of 2.
 2. Never pick a candidate where suppressed=true.
-3. Max 2 picks per active film. Don't load the slate with one juggernaut.
+3. Per-film cap is a guideline, not a hard rule: a typical film should get at most
+   2 picks so one juggernaut doesn't eat the slate. An active film flagged
+   is_signal=true (a Cerebro-confirmed high-traffic director, star, or franchise —
+   i.e. a story that matters more to us commercially) can exceed 2 picks IF there
+   are multiple genuinely distinct, strong angles for it. Use judgment — "it
+   matters to us" is not itself a reason to add a weak third pick. Don't overdo it.
 4. Mix angle categories. Don't pick 3 franchise_siblings. Aim for variety across:
    franchise_sibling, creative_head_to_head, unexpected_giant_killer, asymmetry,
-   round_number_milestone.
+   round_number_milestone. Creative head-to-head angles (a director or star
+   passing their own prior work) are rarer and more valuable than
+   unexpected_giant_killer surprises — when an unexpected_giant_killer candidate
+   and a creative_head_to_head candidate have comparable richness, prefer the
+   creative_head_to_head one. Unexpected_giant_killer should not dominate the
+   slate; if most of your strongest candidates on a given day are
+   unexpected_giant_killer, that's a signal to look harder for the rarer angles
+   before settling.
 5. Prefer just_passed over about_to_pass UNLESS the about_to_pass candidate's
    richness_score exceeds just_passed by 5+ points.
 6. When two candidates are close in richness, prefer the one with stronger MW
    talent or franchise signals (signals.is_signal=true on active or comp).
-7. unexpected_giant_killer picks should feel earned — the comp film needs cultural
+7. A story on an is_signal=true active film should rank at the TOP of the
+   day's slate by priority, not just win ties — don't let a Tier-1 story (e.g.
+   "closing on an all-time domestic record") get buried as one line among several
+   lesser picks. Give it prominence commensurate with how big the story actually is.
+8. unexpected_giant_killer picks should feel earned — the comp film needs cultural
    weight. Best Picture winners qualify, but so do iconic blockbusters that defined
    their era regardless of awards: Harry Potter, Independence Day, Jurassic Park,
    The Lion King, Top Gun, any film that people think of as "a classic" even if it
    never won an Oscar. The test is: would a casual moviegoer recognize the comp and
    be surprised the active film passed it? A mid-tier film passing a slightly bigger
    mid-tier film isn't an unexpected_giant_killer — skip it.
-8. Milestone picks ($100M / $500M / $1B etc.) are fine but cap at 1 per run unless
+   - Plausibility check: eligibility and all reported figures use RAW, unadjusted
+     grosses — do not inflation-adjust the numbers themselves. But before finalizing
+     an unexpected_giant_killer or milestone pick against an older comp (pre-1990s
+     especially), mentally sanity-check it against inflation. If the comparison
+     would look absurd or embarrassing once you account for how much bigger the
+     comp actually was in real terms at the time (e.g. a modest current release
+     "beating" a comp that was actually a much bigger cultural and commercial event
+     once inflation is considered), DO NOT run the pick — skip it entirely, don't
+     just caveat it.
+9. Milestone picks ($100M / $500M / $1B etc.) are fine but cap at 1 per run unless
    it's Monday (then up to 2). Critically: if you have a strong unexpected_giant_killer
    candidate (iconic comp, high richness), prefer it over a $100M–$300M milestone. Only
    choose the milestone over a compelling giant-killer if the milestone is $500M+.
-9. asymmetry picks are bonus — use them when the contrast is genuinely striking
-   (worldwide 5x domestic, or vice versa, vs. cohort). Skip if the asymmetry is
-   common for the genre.
+10. asymmetry picks are bonus — use them when the contrast is genuinely striking
+    (worldwide 5x domestic, or vice versa, vs. cohort). Skip if the asymmetry is
+    common for the genre.
 
 ## Headline guidance (MovieWeb house style)
 
-- Lead with the news event. "X Just Passed Y" is the basic shape.
+- Lead with the news event, but do NOT default to "X Is About to Pass/Surpass Y"
+  as your only construction. That shape is fine occasionally, but if most of a
+  day's headlines use it, that's a failure of variety — vary the construction
+  pick to pick. Alternatives to rotate through:
+  - Lead with the number: "$500M and Climbing: [Film] Nears a Major Milestone"
+  - Lead with the franchise/talent angle: "[Director]'s Latest Just Outdid Their
+    Own [Prior Film]"
+  - Lead with a superlative/rank: "[Film] Is Now the 4th-Biggest Horror Movie Ever"
+  - Lead with the contrast for giant-killer stories (see below)
+  - Frame as an ongoing story rather than a single crossing: "[Film]'s Box Office
+    Run Keeps Getting Bigger"
+  Treat "X beats/passes/surpasses Y" as one tool among several, not the default.
 - Max 90 characters.
 - Specific numbers when they're round or meaningful — "$500M", "$1 Billion", a
   rank ("4th-Biggest Horror Ever").
