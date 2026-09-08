@@ -110,7 +110,7 @@ def post_pick(
     axis_label = axis.capitalize()
     meta = f"{category_label}  ·  {kind_label}  ·  {axis_label}"
 
-    if threshold:
+    if kind == "milestone":
         # Milestone pick: no comp film
         numbers_block = {
             "type": "section",

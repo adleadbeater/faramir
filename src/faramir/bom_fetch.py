@@ -187,7 +187,10 @@ def scrape_worldwide(imdb_id: str) -> dict | None:
     result = {}
 
     # BOM renders Domestic / International / Worldwide as text labels
-    # with money values on nearby lines.
+    # with money values on nearby lines. Films with multiple theatrical runs
+    # (reissues, re-releases) repeat these labels once per run — take the max
+    # value seen for each label so we land on the lifetime aggregate rather
+    # than whichever run happens to appear first on the page.
     lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
     for i, line in enumerate(lines):
         lower = line.lower()
@@ -195,7 +198,7 @@ def scrape_worldwide(imdb_id: str) -> dict | None:
             for j in range(i + 1, min(i + 6, len(lines))):
                 val = _clean_money(lines[j])
                 if val > 0:
-                    result[lower] = val
+                    result[lower] = max(result.get(lower, 0), val)
                     break
 
     if result:

@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import sys
 from datetime import date, timedelta
 
@@ -16,6 +17,60 @@ logging.basicConfig(
 logger = logging.getLogger("faramir.daily")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+_MONEY_RE = re.compile(r"\$([\d,]+(?:\.\d+)?)\s*(billion|million|bn|b|m)?\b", re.I)
+
+
+def _extract_money_values(text: str) -> list[float]:
+    """Extract dollar figures mentioned in free text, normalized to raw USD."""
+    values = []
+    for amount_str, unit in _MONEY_RE.findall(text or ""):
+        try:
+            amount = float(amount_str.replace(",", ""))
+        except ValueError:
+            continue
+        unit = (unit or "").lower()
+        if unit.startswith("b"):
+            amount *= 1_000_000_000
+        elif unit.startswith("m"):
+            amount *= 1_000_000
+        values.append(amount)
+    return values
+
+
+def _validate_pick_figures(pick: dict, comp_film: dict | None) -> str | None:
+    """Cross-check the comp film's block figures for internal consistency and
+    against the prose Claude wrote. Returns a reason string if the pick should
+    be dropped, or None if it's fine.
+
+    Two checks, both conservative to avoid false positives:
+      1. Worldwide must be >= domestic for the comp film — a hard data-integrity
+         invariant. A violation means the corpus figure is wrong (e.g. a partial
+         theatrical run rather than a lifetime aggregate).
+      2. If the prose cites a dollar figure far larger (>1.5x) than both the
+         comp's domestic and worldwide block figures, the block is very likely
+         reading a stale/partial number while Claude's prose reflects the real
+         (larger) lifetime gross from its training knowledge.
+    """
+    if not comp_film:
+        return None
+
+    comp_dom = int(comp_film.get("domestic_lifetime") or 0)
+    comp_ww = int(comp_film.get("worldwide_lifetime") or 0)
+
+    if comp_ww and comp_dom and comp_ww < comp_dom:
+        return f"comp WW ({comp_ww}) < comp Dom ({comp_dom}) — partial-run data"
+
+    prose = f"{pick.get('headline', '')} {pick.get('angle', '')}"
+    mentioned = _extract_money_values(prose)
+    if mentioned and (comp_ww or comp_dom):
+        max_mentioned = max(mentioned)
+        if max_mentioned > comp_ww * 1.5 and max_mentioned > comp_dom * 1.5:
+            return (
+                f"prose cites ${max_mentioned:,.0f} but comp block shows "
+                f"WW={comp_ww}, Dom={comp_dom} — block/prose disagreement"
+            )
+    return None
 
 
 def main():
@@ -133,8 +188,20 @@ def main():
         if matched_row:
             tmdb_id = int(matched_row["tmdb_id"])
             row = dict(matched_row)
-            row["domestic_yesterday"] = int(row.get("domestic_today") or 0)
+            prior_dom = int(row.get("domestic_today") or 0)
+            prior_stale = int(row.get("dom_stale_days") or 0)
+            # Cumulative gross must never decrease vs the prior run — a lower
+            # value means a bad scrape, not a real drop. Reject it and keep
+            # the prior figure rather than let bad data through.
+            if prior_dom and gross_today < prior_dom:
+                logger.warning(
+                    "'%s': domestic_today %s < prior %s — rejecting, keeping prior value",
+                    bom_title, gross_today, prior_dom,
+                )
+                gross_today = prior_dom
+            row["domestic_yesterday"] = prior_dom
             row["domestic_today"] = gross_today
+            row["dom_stale_days"] = prior_stale + 1 if gross_today == prior_dom else 0
             row["days_in_release"] = days
             row["last_seen"] = str(today)
             row["status"] = "active"
@@ -167,6 +234,8 @@ def main():
                 "days_in_release": days,
                 "tmdb_id_override": "",
                 "notes": "",
+                "dom_stale_days": 0,
+                "ww_stale_days": 0,
             }
 
         new_state[tmdb_id] = row
@@ -196,12 +265,26 @@ def main():
         imdb_id = row.get("imdb_id")
         if not imdb_id:
             continue
+        prior_ww = int(row.get("worldwide_today") or 0)
+        prior_ww_stale = int(row.get("ww_stale_days") or 0)
         ww_data = scrape_worldwide(imdb_id)
         if ww_data:
-            row["worldwide_yesterday"] = int(row.get("worldwide_today") or 0)
-            row["worldwide_today"] = ww_data.get("worldwide", 0)
+            new_ww = ww_data.get("worldwide", 0)
+            # Same decrease guard as domestic — a lower WW figure vs the
+            # prior run means a bad scrape (e.g. a snapshot mid-aggregation),
+            # not a real drop. Reject it and keep the prior value.
+            if prior_ww and new_ww < prior_ww:
+                logger.warning(
+                    "tmdb_id=%s: worldwide_today %s < prior %s — rejecting, keeping prior value",
+                    row.get("tmdb_id"), new_ww, prior_ww,
+                )
+                new_ww = prior_ww
+            row["worldwide_yesterday"] = prior_ww
+            row["worldwide_today"] = new_ww
+            row["ww_stale_days"] = prior_ww_stale + 1 if new_ww == prior_ww else 0
         else:
-            row["worldwide_yesterday"] = int(row.get("worldwide_today") or 0)
+            row["worldwide_yesterday"] = prior_ww
+            row["ww_stale_days"] = prior_ww_stale + 1
             # Leave worldwide_today unchanged from state
 
     if cold_start:
@@ -217,6 +300,26 @@ def main():
         and r.get("first_seen", str(today)) < str(today)
     ]
     logger.info("%d active films with yesterday baseline", len(active_films_raw))
+
+    # Suppress films whose domestic or worldwide gross has been frozen for
+    # 2+ consecutive runs (>48h at this daily cadence) — a field that never
+    # updates means the source stopped reporting for this title, not that
+    # movement genuinely stalled overnight. Picking off a stale figure risks
+    # publishing an inflated/outdated comparison.
+    stale_films = [
+        r for r in active_films_raw
+        if int(r.get("dom_stale_days") or 0) >= 2 or int(r.get("ww_stale_days") or 0) >= 2
+    ]
+    if stale_films:
+        logger.warning(
+            "Suppressing %d film(s) with stale gross data: %s",
+            len(stale_films),
+            [r.get("canonical_title") for r in stale_films],
+        )
+    active_films_raw = [
+        r for r in active_films_raw
+        if int(r.get("dom_stale_days") or 0) < 2 and int(r.get("ww_stale_days") or 0) < 2
+    ]
 
     # Step 6: Enrich active films with full TMDB metadata
     enriched_active: list[dict] = []
@@ -346,10 +449,27 @@ def main():
     else:
         logger.warning("No candidates to send to Claude today")
 
+    # Step 11b: Validate comp-figure integrity before anything gets posted —
+    # drop picks that fail the WW>=Dom invariant or show a block/prose mismatch
+    # rather than shipping a pick a writer would copy the wrong number from.
+    corpus_by_tmdb = {f.get("tmdb_id"): f for f in corpus}
+    validated_picks = []
+    for pick in picks:
+        comp_tmdb = pick.get("comp_tmdb_id")
+        comp_film = corpus_by_tmdb.get(comp_tmdb) if comp_tmdb else None
+        reason = _validate_pick_figures(pick, comp_film)
+        if reason:
+            logger.warning(
+                "Dropping pick '%s' vs '%s': %s",
+                pick.get("active_title", ""), pick.get("comp_title", ""), reason,
+            )
+            continue
+        validated_picks.append(pick)
+    picks = validated_picks
+
     # Step 12: Post to Slack
     post_header(slack_url, len(picks), len(enriched_active), today)
 
-    corpus_by_tmdb = {f.get("tmdb_id"): f for f in corpus}
     suggestion_rows: list[dict] = []
 
     for pick in picks:

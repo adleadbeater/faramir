@@ -25,6 +25,8 @@ STATE_HEADERS = [
     "days_in_release",
     "tmdb_id_override",
     "notes",
+    "dom_stale_days",
+    "ww_stale_days",
 ]
 
 SUGGESTIONS_HEADERS = [
