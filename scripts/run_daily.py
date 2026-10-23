@@ -1,5 +1,6 @@
 """Faramir daily pipeline entrypoint (spec §5)."""
 
+import json
 import logging
 import os
 import re
@@ -150,6 +151,11 @@ def _suppressed_pairs(past_suggestions: list[dict], today, suppress_days: int) -
     return suppressed_pairs
 
 
+def _join_warnings(*warnings) -> str | None:
+    parts = [w for w in warnings if w]
+    return "\n".join(parts) if parts else None
+
+
 def _sheet_client(ctx):
     """Production Sheets client, or the read-only fixture client offline."""
     if ctx.fixtures_dir:
@@ -175,7 +181,8 @@ def _run(ctx, run_date=None):
         SheetReadError,
         flush_usage_to_sheet,
     )
-    from faramir.claude_select import build_payload, select_picks
+    from faramir.binding import bind_picks
+    from faramir.claude_select import build_payload, select
     from faramir.slack_post import post_header, post_header_message, post_init, post_failure, post_corpus_abort, post_alert
     from faramir.delivery import (
         COUNTS_TOWARD_TODAY, DeliveryItem, SlackTarget, deliver, reconcile, should_post_header,
@@ -651,11 +658,22 @@ def _run(ctx, run_date=None):
     picks_max = config.PICKS_MAX_BY_DAY.get(dow, 4)
 
     picks: list[dict] = []
+    selection_warning = None
     if active_films_payload and any(f["candidates"] for f in active_films_payload):
         payload = build_payload(today, active_films_payload, picks_target, picks_min, picks_max)
-        picks = select_picks(payload)
-        if picks is None:
-            picks = []
+        selection = select(payload)
+        runtime.note("claude_selection", selection.summary())
+        if selection.status != "ok":
+            # Fail safe: no picks, never a guess or a stale recommendation.
+            logger.error("Claude selection failed (%s): %s", selection.status, selection.reason)
+            selection_warning = f"⚠ Pick selection unavailable today ({selection.reason or selection.status}) — no picks posted."
+        # Every pick must bind to a real candidate; each gets a candidate_id and evidence snapshot.
+        binding = bind_picks(selection.picks, active_films_payload, bom_date_used.isoformat(),
+                             corpus_load.meta.get("gross_as_of"))
+        runtime.note("claude_binding", binding.summary())
+        for r in binding.rejected:
+            logger.warning("Rejected Claude pick %s: %s", r["pick"].get("headline"), r["reason"])
+        picks = binding.accepted
     else:
         logger.warning("No candidates to send to Claude today")
 
@@ -720,6 +738,8 @@ def _run(ctx, run_date=None):
             "delivery_run_id": ctx.run_id,
             "data_date": data_date.isoformat(),
             "delivery_note": "",
+            "candidate_id": pick.get("candidate_id", ""),
+            "evidence_json": json.dumps(pick.get("evidence"), sort_keys=True, separators=(",", ":"), default=str),
         }
         sid = derive_suggestion_id(row)
         if sid is None:
@@ -776,9 +796,9 @@ def _run(ctx, run_date=None):
     if post_hdr:
         if slack_target:
             post_header_message(slack_bot_token, slack_channel_id, len(deliveries), len(enriched_active), today,
-                                warning=corpus_load.editor_warning())
+                                warning=_join_warnings(corpus_load.editor_warning(), selection_warning))
         else:
-            post_header(slack_url, len(deliveries), len(enriched_active), today, warning=corpus_load.editor_warning())
+            post_header(slack_url, len(deliveries), len(enriched_active), today, warning=_join_warnings(corpus_load.editor_warning(), selection_warning))
 
     outcomes = []
     if deliveries and slack_target:

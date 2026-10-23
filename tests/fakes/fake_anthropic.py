@@ -40,6 +40,15 @@ class _Messages:
     def __init__(self, owner: "FakeAnthropic"):
         self._owner = owner
 
+    def count_tokens(self, **kwargs):
+        self._owner.count_calls.append(kwargs)
+        if self._owner.token_counts:
+            item = self._owner.token_counts.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return _Count(item)
+        return _Count(len(kwargs["messages"][0]["content"]) // 4 + 2000)
+
     def create(self, **kwargs):
         self._owner.calls.append(kwargs)
         if not self._owner.script:
@@ -54,10 +63,17 @@ class _Messages:
         return FakeMessage(content=[FakeTextBlock(item)])
 
 
+class _Count:
+    def __init__(self, n):
+        self.input_tokens = n
+
+
 class FakeAnthropic:
-    def __init__(self, script: list | None = None):
+    def __init__(self, script: list | None = None, token_counts: list | None = None):
         self.script = list(script or [])
         self.calls: list[dict] = []
+        self.count_calls: list[dict] = []
+        self.token_counts = list(token_counts or [])  # scripted count_tokens results (int or Exception)
         self.client_kwargs: list[dict] = []
         self.messages = _Messages(self)
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass, field
 
 from gspread.utils import numericise_all, rowcol_to_a1
@@ -38,6 +39,7 @@ from faramir.sheet import (
 logger = logging.getLogger(__name__)
 
 TAB = "suggestions"
+SLACK_TS_RE = re.compile(r"^\d{9,11}\.\d{6}$")  # Slack ts: seconds + exactly 6 digits
 FEEDBACK_COLUMNS = ("thumbs_up", "thumbs_down", "thread_replies", "thread_feedback")
 MAX_APPEND_ATTEMPTS = 3
 
@@ -98,6 +100,7 @@ class Table:
     unidentifiable: list[int] = field(default_factory=list)
     duplicate_ids: dict[str, list[int]] = field(default_factory=dict)
     duplicate_ts: dict[str, list[int]] = field(default_factory=dict)
+    damaged_ts: list[int] = field(default_factory=list)  # rows whose stored ts lost precision
 
     def records(self) -> list[dict]:
         """Rows as gspread get_all_records would return them (suppression input)."""
@@ -131,6 +134,7 @@ class Table:
             "unidentifiable_rows": self.unidentifiable[:50],
             "duplicate_ids": {k: v for k, v in list(self.duplicate_ids.items())[:50]},
             "duplicate_slack_ts": {k: v for k, v in list(self.duplicate_ts.items())[:50]},
+            "precision_damaged_slack_ts_rows": self.damaged_ts[:50],
         }
 
 
@@ -162,6 +166,7 @@ def parse(values: list[list[str]]) -> Table:
     table.unidentifiable = [r.number for r in rows if r.sid is None]
     table.duplicate_ids = {k: v for k, v in table.ids().items() if len(v) > 1}
     table.duplicate_ts = {k: [r.number for r in v] for k, v in table.by_ts().items() if len(v) > 1}
+    table.damaged_ts = [r.number for r in rows if r.slack_ts and not SLACK_TS_RE.match(r.slack_ts)]
     return table
 
 
@@ -359,7 +364,7 @@ def update_by_id(client, sheet_id: str, changes: dict[str, dict[str, str]], op: 
     if not changes:
         return result
     allowed = set(DELIVERY_COLUMNS) | {"slack_ts"} | set(FEEDBACK_COLUMNS)
-    allowed.discard("suggestion_id")
+    allowed -= {"suggestion_id", "candidate_id", "evidence_json"}  # immutable once written
     fresh = read_table(client, sheet_id)
     dry = bool(runtime.current() and runtime.current().dry_run)
     if fresh.schema != 2 and not (dry and not fresh.header):  # a dry run may "append" to an empty tab
@@ -443,8 +448,11 @@ def plan_migration(table: Table, force: bool = False) -> dict:
             note = "migrated; legacy row without pick ids"
             unidentifiable.append(r.number)
         state = "posted" if r.slack_ts else "legacy_unknown"
+        if r.slack_ts and not SLACK_TS_RE.match(r.slack_ts):
+            note += "; slack_ts precision damaged (feedback cannot be matched)"
         assignments.append({"row": r.number, "suggestion_id": sid, "delivery_state": state,
                             "delivery_attempts": "", "last_attempt_at": "", "delivery_run_id": "",
-                            "data_date": "", "delivery_note": note})
+                            "data_date": "", "delivery_note": note, "candidate_id": "", "evidence_json": ""})
     return {"already_migrated": False, "rows": len(table.rows), "assignments": assignments,
-            "legacy_duplicates": {k: v for k, v in duplicates.items()}, "unidentifiable_rows": unidentifiable}
+            "legacy_duplicates": {k: v for k, v in duplicates.items()}, "unidentifiable_rows": unidentifiable,
+            "precision_damaged_slack_ts_rows": table.damaged_ts}

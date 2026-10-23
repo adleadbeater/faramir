@@ -1,0 +1,146 @@
+{
+  "run_id": "20261023T104322Z-local-e302ab",
+  "mode": "dry_run",
+  "enabled": false,
+  "fixtures_dir": "fixtures/offline/2026-10-22",
+  "started_at": "2026-10-23T10:43:22+00:00",
+  "finished_at": "2026-10-23T10:43:23+00:00",
+  "halted_reason": null,
+  "write_outcomes": {
+    "recorded": 11
+  },
+  "run_date": "2026-10-22",
+  "corpus": {
+    "status": "OK",
+    "reasons": [],
+    "usable_rows": 2011,
+    "exclusions": {},
+    "coverage": {
+      "domestic": {
+        "reported": 1000,
+        "missing": 1011,
+        "confirmed_zero": 0,
+        "reported_share": 0.4973
+      },
+      "worldwide": {
+        "reported": 1999,
+        "missing": 12,
+        "confirmed_zero": 0,
+        "reported_share": 0.994
+      }
+    },
+    "gross_as_of": "2026-10-01",
+    "age_days": 21
+  },
+  "preflight": {
+    "ok": true,
+    "corpus": "OK"
+  },
+  "state": {
+    "decision": "PROCEED",
+    "reason": "state valid"
+  },
+  "suggestions_table": {
+    "schema": 2,
+    "rows": 1,
+    "unidentifiable_rows": [],
+    "duplicate_ids": {},
+    "duplicate_slack_ts": {},
+    "precision_damaged_slack_ts_rows": []
+  },
+  "feedback": {
+    "updated": 1,
+    "unchanged": 0,
+    "moved": {},
+    "refused": {}
+  },
+  "delivery_reconciliation": {
+    "history_ok": true,
+    "history_error": null,
+    "header_posted_today": false,
+    "changed": {},
+    "still_open": [],
+    "duplicate_posts": {},
+    "refused": {},
+    "pages": 1,
+    "matched_by_metadata": 0,
+    "matched_by_ref": 0
+  },
+  "source_dates": {
+    "daily_chart": "2026-10-21",
+    "daily_rows": 5
+  },
+  "films": {
+    "active": 1,
+    "tracked": 1
+  },
+  "corpus_exclusions": [],
+  "suppressed_pairs": 1,
+  "candidates": 17,
+  "claude_selection": {
+    "status": "ok",
+    "reason": "",
+    "attempts": [
+      {
+        "attempt": 1,
+        "stop_reason": "end_turn",
+        "input_tokens": 0,
+        "output_tokens": 0
+      }
+    ],
+    "input_tokens_counted": 4447,
+    "candidates_trimmed": 0,
+    "picks_returned": 1
+  },
+  "claude_binding": {
+    "accepted": [
+      {
+        "candidate_id": "5533665f11c17d9f",
+        "evidence_ref": "c66dc334bee14053",
+        "headline": "[OFFLINE FIXTURE] Beta Story vs Superman"
+      }
+    ],
+    "rejected": []
+  },
+  "picks": {
+    "returned": 1,
+    "after_validation": 1
+  },
+  "suggestions_append": {
+    "appended": 1,
+    "already_present": 0,
+    "attempts": 1,
+    "duplicates_after": {}
+  },
+  "delivery": {
+    "new": [
+      "9d8c8898f25da967"
+    ],
+    "replayed": [],
+    "skipped_already_logged": [],
+    "over_daily_cap": [],
+    "expired": {},
+    "header": "first header today",
+    "outcomes": [
+      {
+        "suggestion_id": "9d8c8898f25da967",
+        "state": "posted",
+        "ts": "dryrun-2",
+        "error": null,
+        "confirmed": true
+      }
+    ]
+  },
+  "state_generation": 2,
+  "claude_usage": [
+    {
+      "timestamp": "2026-10-23T10:43:23.148331+00:00",
+      "call_label": "select_picks#1",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cache_created": 0,
+      "cache_read": 0,
+      "model": "claude-sonnet-4-6"
+    }
+  ]
+}

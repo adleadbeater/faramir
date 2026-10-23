@@ -7,7 +7,10 @@ Per-pick ``delivery_state`` on the suggestions tab (schema v2):
   posted         Slack returned a ts, or history shows the tagged message
   failed         Slack returned ok:false — definitely not posted
   unknown        timeout / unreadable response — Slack MAY have posted it
-  not_delivered  a reliable history check found no message for it
+  not_delivered  never attempted (logged 'planned', no Slack call made) — safe to retry
+  unconfirmed    an attempt was made and a reliable history read did not find
+                 it — the outcome is still ambiguous, so it is NEVER retried
+                 automatically; it keeps suppressing and is listed for review
   expired        undelivered and no longer eligible for automatic retry
   dismissed      an operator chose not to deliver it
   legacy_unknown migrated pre-v2 row without a Slack ts
@@ -16,12 +19,11 @@ Guarantees (and what is NOT guaranteed):
 * No pick is reposted while its outcome is open (planned/sending/unknown) or
   posted. An open outcome is resolved only by a successful, complete history
   read; a failed history read changes nothing.
-* Automatic posting is at-most-once per suggestion_id *as far as Slack history
-  can show*: a repost happens only after a complete history read found no
-  tagged message for that id and the last attempt is older than a grace
-  period. If Slack accepted a message but omitted it from history, a duplicate
-  is possible; it would be detected on the next reconciliation (two ts for one
-  id) and reported, never silently merged.
+* Automatic re-delivery happens only for picks that were never attempted
+  (not_delivered) or that Slack definitively rejected (failed). An attempted
+  pick that history does not show becomes 'unconfirmed' and needs an operator
+  (scripts/replay_picks.py) — absence from a history response is never, by
+  itself, a reason to post again. Duplicates found in history are reported.
 * Not exactly-once: Slack has no idempotency key for chat.postMessage.
 * Nothing is silently lost: an undelivered pick ends posted, expired (listed
   for manual review) or dismissed.
@@ -117,8 +119,11 @@ def reconcile(client, sheet_id: str, table: Table, slack: SlackTarget, run_date:
         else:
             last = _parse_ts(row.get("last_attempt_at"))
             if last is not None and now - last >= ATTEMPT_GRACE:
-                changes[row.sid] = {"delivery_state": "not_delivered",
-                                    "delivery_note": f"not in Slack history ({hist.pages} page(s) read)"}
+                # Attempted, outcome ambiguous: absence from history is not proof
+                # it wasn't posted. Never retried automatically.
+                changes[row.sid] = {"delivery_state": "unconfirmed",
+                                    "delivery_note": f"attempted; not found in Slack history ({hist.pages} page(s)) "
+                                                     "— check the channel, then replay or dismiss"}
             else:
                 rec.still_open.append(row.sid)
     if changes:

@@ -65,7 +65,9 @@
     "last_attempt_at",
     "delivery_run_id",
     "data_date",
-    "delivery_note"
+    "delivery_note",
+    "candidate_id",
+    "evidence_json"
    ],
    [
     "2026-10-21",
@@ -91,7 +93,9 @@
     "",
     "",
     "",
-    "migrated"
+    "migrated",
+    "",
+    ""
    ]
   ],
   "state_lkg": [

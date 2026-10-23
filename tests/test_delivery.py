@@ -158,7 +158,10 @@ def test_crash_before_posting_mark_fails_nothing_posted_then_replayed_once(world
     assert len(tagged_posts(slack, r["suggestion_id"])) == 1
 
 
-def test_timeout_before_slack_accepted_becomes_not_delivered_after_grace(world):
+def test_attempted_but_absent_becomes_unconfirmed_never_auto_retried(world):
+    # Increment 7 (review requirement): absence from history after an attempt
+    # is not proof of non-delivery. It becomes 'unconfirmed': still suppressing,
+    # listed for review, never retried automatically.
     gc, _, slack = world
     r = pick(9)
     log(gc, [r])
@@ -166,7 +169,11 @@ def test_timeout_before_slack_accepted_becomes_not_delivered_after_grace(world):
     (out,) = deliver(gc, "S", T, [item(r)], "run1", now_fn=lambda: NOW)
     assert out.state == "unknown" and state_of(gc, r["suggestion_id"]) == "unknown"
     assert reconcile_now(gc, now=NOW + timedelta(minutes=1)).still_open == [r["suggestion_id"]]  # within grace
-    assert reconcile_now(gc, now=NOW + timedelta(minutes=10)).changed == {r["suggestion_id"]: "not_delivered"}
+    assert reconcile_now(gc, now=NOW + timedelta(minutes=10)).changed == {r["suggestion_id"]: "unconfirmed"}
+    table = read_table(gc, "S")
+    assert triage_undelivered(table, TODAY, date(2026, 10, 21), {"9"}).replay == []
+    assert r["suggestion_id"] in {x["suggestion_id"] for x in suppression_records(table)}
+    assert slack.messages == []
 
 
 def test_slack_accepted_but_response_timed_out_is_confirmed_not_reposted(world):
@@ -429,7 +436,11 @@ def test_rerun_with_identical_pick_reposts_nothing_and_no_second_header(env):
     assert main(env) == 0
     assert len(pick_msgs(env["slack"])) == 1 and len(header_msgs(env["slack"])) == 1
     report, _, _ = artifacts(env)
-    assert len(report["delivery"]["skipped_already_logged"]) == 1
+    # Increment 7: the repeated pick no longer reaches delivery at all — its pair is
+    # suppressed, so it is not a candidate and binding rejects it.
+    (rejected,) = report["claude_binding"]["rejected"]
+    assert "not a candidate" in rejected["reason"]
+    assert report["delivery"]["new"] == []
 
 
 def test_rerun_with_a_genuinely_new_pick_delivers_it(env):
@@ -568,3 +579,34 @@ def test_dismiss(replay_env):
     rp = load_script("replay_picks")
     assert rp.main(["--dismiss", "--id", r["suggestion_id"], "--reason", "covered", "--out-root", str(env["tmp"] / "o")]) == 0
     assert state_of(env["gc"], r["suggestion_id"]) == "dismissed"
+
+
+def test_unconfirmed_replay_requires_explicit_channel_check(replay_env):
+    env, r = replay_env
+    update_by_id(env["gc"], "S", {r["suggestion_id"]: {"delivery_state": "unconfirmed"}}, "t")
+    env["monkeypatch"].setenv("FARAMIR_ENABLED", "true")
+    rp = load_script("replay_picks")
+    base = ["--apply", "--id", r["suggestion_id"], "--confirm-channel", "C1", "--out-root", str(env["tmp"] / "o")]
+    assert rp.main(base) == 10 and pick_msgs(env["slack"]) == []
+    assert rp.main(base + ["--checked-channel"]) == 0 and len(pick_msgs(env["slack"])) == 1
+
+
+def test_precision_damaged_slack_ts_is_identified_in_legacy_rows():
+    from tests.test_suggestions import LEGACY, cells
+
+    rows = [dict(LEGACY[0], slack_ts="1700000001.0001"), dict(LEGACY[5], slack_ts="1700000002.000100")]
+    table = parse([list(SUGGESTIONS_HEADERS)] + [cells(r) for r in rows])
+    assert table.damaged_ts == [2]
+    plan = plan_migration(table)
+    assert plan["precision_damaged_slack_ts_rows"] == [2]
+    assert "precision damaged" in plan["assignments"][0]["delivery_note"]
+
+
+def test_slack_ts_is_written_as_raw_text(world):
+    gc, _, _ = world
+    r = pick(9)
+    log(gc, [r])
+    update_by_id(gc, "S", {r["suggestion_id"]: {"slack_ts": "1792670001.000100"}}, "t")
+    batch = [c for c in gc.writes() if c[1] == "batch_update"][-1]
+    assert batch[2][0][0]["values"] == [["1792670001.000100"]]  # a string, sent with value_input_option=RAW
+    assert read_table(gc, "S").by_id()[r["suggestion_id"]][0].get("slack_ts") == "1792670001.000100"

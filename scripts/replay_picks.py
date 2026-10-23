@@ -35,8 +35,8 @@ from faramir.suggestions import read_table, update_by_id  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger("faramir.replay_picks")
 
-REVIEW_STATES = {"expired", "not_delivered", "failed", "unknown", "sending", "planned", "legacy_unknown"}
-REPLAYABLE = {"expired", "not_delivered", "failed"}
+REVIEW_STATES = {"expired", "not_delivered", "failed", "unknown", "unconfirmed", "sending", "planned", "legacy_unknown"}
+REPLAYABLE = {"expired", "not_delivered", "failed", "unconfirmed"}
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 
@@ -70,6 +70,8 @@ def main(argv=None) -> int:
     ap.add_argument("--confirm-channel", default="")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out-root", default=None)
+    ap.add_argument("--checked-channel", action="store_true",
+                    help="required for an 'unconfirmed' pick: you looked in the channel and it is not there")
     args = ap.parse_args(argv)
 
     sheet_id = os.environ.get("FARAMIR_SHEET_ID", "")
@@ -127,6 +129,10 @@ def main(argv=None) -> int:
             if state not in REPLAYABLE:
                 logger.error("Refusing: state %r is not replayable (%s)", state, sorted(REPLAYABLE))
                 return 6
+            if state == "unconfirmed" and not args.checked_channel:
+                logger.error("Refusing: this pick was attempted and its outcome is ambiguous; check the channel "
+                             "by hand and pass --checked-channel to replay it")
+                return 10
             if args.confirm_channel != channel or not token:
                 logger.error("--apply requires --confirm-channel matching SLACK_CHANNEL_ID and a bot token")
                 return 2

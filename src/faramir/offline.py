@@ -185,7 +185,15 @@ class _Message:
         self.content = [_Text(text)]
 
 
+class _Count:
+    def __init__(self, n):
+        self.input_tokens = n
+
+
 class _Messages:
+    def count_tokens(self, **kwargs):
+        return _Count(len(kwargs["messages"][0]["content"]) // 4 + 2000)
+
     def create(self, **kwargs):
         payload = json.loads(kwargs["messages"][0]["content"])
         picks = []
@@ -199,7 +207,7 @@ class _Messages:
                 "active_tmdb_id": film["tmdb_id"], "active_title": film["title"],
                 "comp_tmdb_id": comp.get("tmdb_id"), "comp_title": comp.get("title"),
                 "axis": c["axis"], "kind": c["kind"], "threshold_value": c.get("threshold_value"),
-                "angle_category": (c.get("angle_categories") or ["studio_sibling"])[0],
+                "angle_category": (c.get("angle_categories") or ["round_number_milestone"])[0],
                 "headline": f"[OFFLINE FIXTURE] {film['title']} vs {comp.get('title') or 'milestone'}",
                 "angle": "Deterministic offline responder: first eligible candidate, no model call.",
             })

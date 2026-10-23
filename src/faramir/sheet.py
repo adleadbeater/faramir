@@ -62,6 +62,10 @@ DELIVERY_COLUMNS = [
     "delivery_run_id",
     "data_date",
     "delivery_note",
+    # Traceability (Increment 7): the candidate a pick was bound to and the
+    # verified figures it rests on. Immutable once written.
+    "candidate_id",
+    "evidence_json",
 ]
 SUGGESTIONS_HEADERS_V2 = SUGGESTIONS_HEADERS + DELIVERY_COLUMNS
 

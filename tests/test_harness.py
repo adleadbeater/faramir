@@ -176,13 +176,16 @@ def _payload():
             "active_films": [{"tmdb_id": 1, "title": "Alpha Film", "candidates": []}]}
 
 
-def test_select_picks_parses_json_with_prose_preamble(monkeypatch):
+def test_select_picks_parses_schema_valid_json(monkeypatch):
+    # Replaces test_select_picks_parses_json_with_prose_preamble (Increment 7):
+    # output is schema-enforced; text outside the JSON is no longer tolerated.
     from faramir.claude_select import select_picks
 
+    FakeAnthropic([json.dumps({"picks": [_pick()]})]).install(monkeypatch)
+    assert [p["headline"] for p in select_picks(_payload())] == ["Alpha Film Passes Classic"]
     body = "Here are the picks:\n" + json.dumps({"picks": [_pick()]})
-    FakeAnthropic([body]).install(monkeypatch)
-    picks = select_picks(_payload())
-    assert [p["headline"] for p in picks] == ["Alpha Film Passes Classic"]
+    FakeAnthropic([body, body]).install(monkeypatch)
+    assert select_picks(_payload()) == []
 
 
 def test_select_picks_returns_empty_after_two_bad_responses(monkeypatch):
@@ -193,24 +196,27 @@ def test_select_picks_returns_empty_after_two_bad_responses(monkeypatch):
     assert len(fake.calls) == 2
 
 
-@pytest.mark.baseline
-def test_baseline_select_picks_only_checks_active_id(monkeypatch):
-    # Defect: an invented comp passes validation. Replaced in Increment 7 (binding).
+def test_invented_comp_is_rejected_by_binding(monkeypatch):
+    # Replaces test_baseline_select_picks_only_checks_active_id (Increment 7):
+    # every pick must bind to a real candidate.
+    from faramir.binding import bind_picks
     from faramir.claude_select import select_picks
 
     invented = dict(_pick(), comp_tmdb_id=123456789, comp_title="Invented Film")
     FakeAnthropic([json.dumps({"picks": [invented]})]).install(monkeypatch)
-    assert select_picks(_payload())[0]["comp_tmdb_id"] == 123456789
+    picks = select_picks(_payload())
+    result = bind_picks(picks, _payload()["active_films"], "2026-10-21")
+    assert result.accepted == [] and "invented comparison" in result.rejected[0]["reason"]
 
 
-@pytest.mark.baseline
-def test_baseline_anthropic_client_has_no_timeout_or_retry_config(monkeypatch):
-    # Replaced in Increment 7: explicit timeout and max_retries.
+def test_anthropic_client_has_explicit_timeout_and_retries(monkeypatch):
+    # Replaces test_baseline_anthropic_client_has_no_timeout_or_retry_config (Increment 7).
+    from faramir import config
     from faramir.claude_select import select_picks
 
     fake = FakeAnthropic([json.dumps({"picks": []})]).install(monkeypatch)
     select_picks(_payload())
-    assert fake.client_kwargs == [{}]
+    assert fake.client_kwargs == [{"timeout": config.SELECTION_TIMEOUT_S, "max_retries": config.SELECTION_MAX_RETRIES}]
 
 
 # ── The Numbers baselines ────────────────────────────────────────────────

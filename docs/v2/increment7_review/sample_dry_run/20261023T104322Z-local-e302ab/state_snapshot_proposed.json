@@ -1,0 +1,45 @@
+{
+ "generation": 2,
+ "checksum": "46a4dbb0b6447f58bb73ba297195790964dab92f5af7f3aada0e498ee3802c2d",
+ "header": [
+  "tmdb_id",
+  "imdb_id",
+  "canonical_title",
+  "bom_title_seen",
+  "release_date",
+  "first_seen",
+  "last_seen",
+  "status",
+  "domestic_yesterday",
+  "domestic_today",
+  "worldwide_yesterday",
+  "worldwide_today",
+  "days_in_release",
+  "tmdb_id_override",
+  "notes",
+  "dom_stale_days",
+  "ww_stale_days"
+ ],
+ "rows": [
+  [
+   "5001",
+   "tt5001001",
+   "Beta Story",
+   "Beta Story",
+   "2026-09-18",
+   "2026-09-20",
+   "2026-10-22",
+   "active",
+   "140000000",
+   "152000000",
+   "300000000",
+   "322000000",
+   "34",
+   "",
+   "",
+   "0",
+   "0"
+  ]
+ ],
+ "run_id": "20261023T104322Z-local-e302ab"
+}
