@@ -424,3 +424,68 @@ def test_concurrent_runs_with_different_content_lose_nothing(gc):
     assert s.collection_id == b.collection_id and len(s.rows) == N
     assert [x["collection_id"] for x in s.superseded] == [a.collection_id]
     assert len(H.collection_rows(H.read_log(gc, "S"), a.collection_id)) == N
+
+
+# ── Increment 12: id scope and deterministic version selection ──────────
+
+def test_identical_figures_on_different_weekends_never_share_ids(gc):
+    nxt = date(2026, 10, 23)
+    a = chart()
+    b = parse_chart(page("weekend", nxt), weekend_url(nxt), "weekend", nxt)  # same rows, next weekend
+    assert [r.gross for r in a.rows] == [r.gross for r in b.rows]
+    assert H.collection_id(a) != H.collection_id(b)
+    assert H.record_id(H.collection_id(a), "Iron-Harbor-(2026)") != H.record_id(H.collection_id(b), "Iron-Harbor-(2026)")
+    collect(gc, a)
+    collect(gc, b, run="run-2", at=T0 + timedelta(days=7))
+    assert snap(gc, "2026-10-16").collection_id == H.collection_id(a)
+    assert snap(gc, "2026-10-23").collection_id == H.collection_id(b)
+    assert len(snap(gc, "2026-10-16").rows) == len(snap(gc, "2026-10-23").rows) == N
+
+
+def test_collection_id_names_the_chart_type(gc):
+    c = chart()
+    assert H.collection_id(c) == H._sha(H.SOURCE, "weekend", c.weekend_start, c.content_hash())
+
+
+def _race(gc, first, second):
+    """Plan both runs against the same log, then execute in the given order."""
+    log = H.read_log(gc, "S")
+    plans = {name: (H.plan_collection(log, ch, {}, at, name, T0), at) for name, ch, at in (first, second)}
+    for name, _, _ in (first, second):
+        plan, at = plans[name]
+        H.execute(gc, "S", plan, name, at, T0)
+    return {name: plans[name][0].collection_id for name in plans}
+
+
+def test_reader_uses_retrieval_time_not_commit_order(gc):
+    # run-late retrieved the revised page later but its commit lands FIRST; run-early commits last.
+    ids = _race(gc, ("run-late", revised(), "2026-10-18T14:00:30+00:00"),
+                    ("run-early", chart(), "2026-10-18T14:00:05+00:00"))
+    assert snap(gc).collection_id == ids["run-late"]
+
+
+def test_reader_ignores_physical_row_order(gc):
+    ids = _race(gc, ("run-early", chart(), "2026-10-18T14:00:05+00:00"),
+                    ("run-late", revised(), "2026-10-18T14:00:30+00:00"))
+    ws = tab(gc, H.COLLECTIONS_TAB)
+    ws.rows = [ws.rows[0]] + list(reversed(ws.rows[1:]))        # shuffle the event log
+    hs = tab(gc, H.HISTORY_TAB)
+    hs.rows = [hs.rows[0]] + list(reversed(hs.rows[1:]))
+    s = snap(gc)
+    assert s.collection_id == ids["run-late"] and [int(r["position"]) for r in s.rows] == list(range(1, N + 1))
+
+
+def test_retrieval_times_with_different_offsets_compare_correctly(gc):
+    # 10:00:30-04:00 is 14:00:30Z: later than 14:00:05Z although it sorts earlier as text.
+    ids = _race(gc, ("run-a", chart(), "2026-10-18T14:00:05+00:00"),
+                    ("run-b", revised(), "2026-10-18T10:00:30-04:00"))
+    assert snap(gc).collection_id == ids["run-b"]
+
+
+def test_simultaneous_retrieval_of_different_versions_is_reported_not_guessed(gc):
+    _race(gc, ("run-a", chart(), "2026-10-18T14:00:05+00:00"), ("run-b", revised(), "2026-10-18T14:00:05+00:00"))
+    s = snap(gc)
+    assert s.status == "conflicting_versions" and s.rows == []
+    assert H.film_series(gc, "S", "Iron-Harbor-(2026)", ["2026-10-16"])[0]["state"] == "unknown"
+    collect(gc, revised(), run="run-c", at=T0 + timedelta(hours=2))   # a later retrieval decides
+    assert snap(gc).status == "available" and snap(gc).rows[1]["total_gross"] == "59400000"

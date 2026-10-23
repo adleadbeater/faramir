@@ -420,6 +420,19 @@ def test_daily_run_stops_when_suggestions_cannot_be_read(env):
     fake = FakeAnthropic([]).install(env["monkeypatch"])
     assert main(env) == 3
     assert fake.calls == [] and env["slack"].messages == []
+    assert env["gc"].writes() == []  # Increment 12: caught by preflight, before the lock
+    report, _, _ = artifacts(env)
+    assert report["halted_reason"].startswith("preflight: Sheets read failed during preflight: suggestions")
+
+
+def test_daily_run_stops_when_suggestions_read_fails_after_preflight(env):
+    from tests.fakes.fake_anthropic import FakeAnthropic
+
+    env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
+    env["gc"].book("S").worksheet("suggestions").fail_on("get_all_values", make_api_error(), after=1)
+    fake = FakeAnthropic([]).install(env["monkeypatch"])
+    assert main(env) == 3
+    assert fake.calls == [] and env["slack"].messages == []
     ops = {c[0] for c in env["gc"].writes()}
     assert ops <= {"state_meta"}  # only the lock acquire/release
     report, _, _ = artifacts(env)

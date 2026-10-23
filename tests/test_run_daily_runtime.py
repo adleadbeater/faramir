@@ -94,10 +94,12 @@ def test_failed_preflight_missing_settings_writes_nothing(env):
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
     FakeAnthropic([]).install(env["monkeypatch"])
     assert main(env) == 3
-    assert env["gc"].calls == [] and env["http"].calls == []
+    assert env["gc"].calls == []
+    # Increment 12: the failure is reported (one alert), nothing else is sent or written.
+    assert len(env["http"].calls) == 1 and env["http"].calls[0]["url"].startswith("https://hooks.slack.com/")
     report, writes, _ = artifacts(env)
-    assert report["preflight"] == {"ok": False, "missing_settings": ["FARAMIR_SHEET_ID"]}
-    assert writes == []
+    assert report["preflight"]["ok"] is False and report["preflight"]["missing_settings"] == ["FARAMIR_SHEET_ID"]
+    assert [w["category"] for w in writes] == ["alert"]
 
 
 def test_unhandled_error_sends_only_an_alert(env):

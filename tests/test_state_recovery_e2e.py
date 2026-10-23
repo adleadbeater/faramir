@@ -88,7 +88,9 @@ def test_not_initialized_stops_and_creates_nothing(env):
     FakeAnthropic([]).install(env["monkeypatch"])
     assert main(env) == 3
     assert env["gc"].writes() == []
-    assert "not_initialized" in json.dumps(env["slack"].webhook_posts[0]["payload"])
+    # Increment 12: preflight now reports the missing integrity tabs before the state check runs.
+    alert = json.dumps(env["slack"].webhook_posts[0]["payload"])
+    assert "required tab 'state_meta' is missing" in alert and "migrate_sheets.py" in alert
 
 
 def test_state_read_error_stops_with_zero_writes(env):

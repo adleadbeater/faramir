@@ -188,6 +188,19 @@ class StateStore:
             self._write_meta(meta)
         self.lock_held = False
 
+    def _check_own_lease(self, meta: dict) -> None:
+        """Fail closed: an expired lease no longer authorizes this run to write, even if nobody
+        else has taken the lock (PR-1)."""
+        lock = meta.get("lock") or {}
+        expires = lock.get("expires_at") or ""
+        try:
+            expired = datetime.fromisoformat(expires) <= self.now()
+        except ValueError:
+            expired = True
+        if lock.get("run_id") != self.run_id or lock.get("status") != "held" or expired:
+            raise StateConflict(f"this run's state lease is no longer valid (holder {lock.get('run_id')}, "
+                                f"status {lock.get('status')}, expires {expires or 'never set'}) — not writing")
+
     # ── write ────────────────────────────────────────────────────────────
     def write(self, rows: list[dict]) -> int:
         """Write a new generation of state. Returns the new generation number."""
@@ -205,6 +218,7 @@ class StateStore:
                                     f"{meta['state'].get('generation')}, {meta['state'].get('status')})")
             if not self.lock_held or (meta.get("lock") or {}).get("run_id") != self.run_id:
                 raise StateConflict("this run does not hold the state lock")
+            self._check_own_lease(meta)
 
         # 2. Editor values: always the live tab's latest.
         live = read_values(self.client, self.sheet_id, STATE_TAB)
@@ -230,7 +244,9 @@ class StateStore:
                                       row_count=len(backup_rows))
             self._write_meta(meta)
 
-        # 4. The new generation.
+        # 4. The new generation. Re-check the lease: a run that outlived it must not write.
+        if not dry:
+            self._check_own_lease(self._read_meta() or {})
         expected = checksum(self.header, new_rows)
         meta["state"] = self._stamp(meta["state"], status="writing", generation=g + 1,
                                     checksum=expected, row_count=len(new_rows))

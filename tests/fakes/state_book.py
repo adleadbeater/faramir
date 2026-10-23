@@ -20,9 +20,24 @@ def state_row(tmdb_id, title, dom_today=140_000_000, dom_yest=130_000_000, ww_to
 
 
 def init_book(book, rows: list[dict], now_iso: str = "2026-10-21T15:00:00+00:00", run_id: str = "init"):
-    """Create state, state_lkg and state_meta exactly as init_state_integrity --apply would."""
+    """A workbook as scripts/migrate_sheets.py --apply leaves it: state, state_lkg, state_meta,
+    the Usage tab and the schema-v2 marker (suggestions are added by each test)."""
     values = [list(STATE_HEADERS)] + row_values(list(STATE_HEADERS), rows)
     book.add_tab(STATE_TAB, values)
     book.add_tab(LKG_TAB, values)
     book.add_tab(META_TAB, meta_values(initial_meta(values, now_iso, run_id)))
+    add_v2_marker(book)
     return values
+
+
+def add_v2_marker(book):
+    from faramir.config import USAGE_TAB_NAME
+    from faramir.preflight import META_HEADERS, META_TAB as SCHEMA_TAB
+    from faramir.sheet import USAGE_HEADERS
+
+    book.add_tab(USAGE_TAB_NAME, [list(USAGE_HEADERS)])
+    book.add_tab(SCHEMA_TAB, [list(META_HEADERS), ["schema_version", "2", now_marker(), "migration"]])
+
+
+def now_marker():
+    return "2026-10-21T14:00:00+00:00"

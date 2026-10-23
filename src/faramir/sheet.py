@@ -189,15 +189,10 @@ def buffer_usage(
     })
 
 
-def _ensure_usage_tab(sh: gspread.Spreadsheet, tab_name: str) -> gspread.Worksheet:
-    """Return the Usage worksheet, creating it with a header row if needed."""
-    try:
-        ws = sh.worksheet(tab_name)
-    except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(tab_name, rows=1000, cols=len(USAGE_HEADERS))
-        ws.append_row(USAGE_HEADERS)
-        logger.info("Created %s tab", tab_name)
-    return ws
+def _usage_tab(sh: gspread.Spreadsheet, tab_name: str) -> gspread.Worksheet:
+    """Return the Usage worksheet. It is created only by scripts/migrate_sheets.py; an ordinary
+    run never creates tabs (a missing tab raises, and flushing fails open)."""
+    return sh.worksheet(tab_name)
 
 
 def flush_usage_to_sheet(client: gspread.Client, sheet_id: str) -> None:
@@ -217,7 +212,7 @@ def flush_usage_to_sheet(client: gspread.Client, sheet_id: str) -> None:
         return
     try:
         sh = client.open_by_key(sheet_id)
-        ws = _ensure_usage_tab(sh, USAGE_TAB_NAME)
+        ws = _usage_tab(sh, USAGE_TAB_NAME)
         rows = [
             [
                 r["timestamp"], r["call_label"], r["input_tokens"], r["output_tokens"],

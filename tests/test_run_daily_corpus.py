@@ -68,6 +68,7 @@ def env(monkeypatch, tmp_path):
     for k, v in {
         "FARAMIR_SHEET_ID": "S", "SLACK_WEBHOOK_URL": WEBHOOK, "SLACK_BOT_TOKEN": "xoxb-test",
         "SLACK_CHANNEL_ID": "C1", "TMDB_API_KEY": "test-key", "FARAMIR_ENABLED": "true",
+        "ANTHROPIC_API_KEY": "test-placeholder",  # never used: FakeAnthropic replaces the client
     }.items():
         monkeypatch.setenv(k, v)
     monkeypatch.delenv("CEREBRO_MW_SHEET_ID", raising=False)

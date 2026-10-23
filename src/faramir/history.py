@@ -104,7 +104,9 @@ def _sha(*parts) -> str:
 
 
 def collection_id(chart: Chart) -> str:
-    return _sha(SOURCE, chart.weekend_start, chart.content_hash())
+    """Scoped to source, chart type, reporting weekend and canonical content: two weekends with
+    identical figures never share an id, and neither do a daily and a weekend chart."""
+    return _sha(SOURCE, chart.chart_type, chart.weekend_start, chart.content_hash())
 
 
 def record_id(coll_id: str, film_key: str) -> str:
@@ -373,11 +375,16 @@ class Snapshot:
     detail: str = ""
 
 
+_EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+
+
 def _observations(log: Log, coll: str) -> list[dict]:
+    """Every retrieval of this content, oldest first, ordered by the parsed retrieval time (never by
+    physical row order or by when the commit landed)."""
     return sorted(({"event": e["event"], "retrieved_at_utc": e["retrieved_at_utc"], "run_id": e["run_id"],
                     "http_status": e["http_status"], "source_url": e["source_url"]}
                    for e in log.for_collection(coll) if e["event"] in ("begin", "observe")),
-                  key=lambda o: o["retrieved_at_utc"])
+                  key=lambda o: (_parse_utc(o["retrieved_at_utc"]) or _EPOCH, o["run_id"]))
 
 
 def collection_status(weekend_start: str, observations: list[dict]) -> str:
@@ -396,12 +403,22 @@ def read_weekend(gc, sheet_id: str, weekend_start: str, log: Log | None = None) 
     if not committed:
         return Snapshot(weekend_start, "missing", detail="no committed collection: unknown, not 'off the chart'")
 
+    def latest(coll):
+        obs = _observations(log, coll)
+        return (_parse_utc(obs[-1]["retrieved_at_utc"]) or _EPOCH) if obs else _EPOCH
+
     def last_seen(coll):
         obs = _observations(log, coll)
         return (obs[-1]["retrieved_at_utc"] if obs else "", int(committed[coll]["revision"] or 0))
 
-    order = sorted(committed, key=last_seen, reverse=True)
+    # The current version is the committed content retrieved most recently (retrieval evidence),
+    # independent of physical row order and of which commit landed last.
+    order = sorted(committed, key=lambda c: (latest(c), int(committed[c]["revision"] or 0)), reverse=True)
     current = order[0]
+    if len(order) > 1 and latest(order[0]) == latest(order[1]):
+        return Snapshot(weekend_start, "conflicting_versions", detail=(
+            f"collections {order[0]} and {order[1]} carry different content retrieved at the same time "
+            f"({latest(order[0]).isoformat()}); unusable until a later retrieval decides"))
     rows = collection_rows(log, current)
     expected = int(committed[current]["verified_rows"] or -1)
     obs = _observations(log, current)

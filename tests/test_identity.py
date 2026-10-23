@@ -343,7 +343,13 @@ def test_state_override_rekeys_the_row_and_drops_the_wrong_identity(run_env):
 
 # ── legacy 17-column state tab ──────────────────────────────────────────
 
-def test_legacy_state_tab_is_accepted_backed_up_and_upgraded(run_env):
+def test_legacy_state_tab_is_refused_by_preflight_then_upgraded_by_migration(run_env):
+    # Increment 12 replaces Increment 9's "upgraded on the first ordinary write": an ordinary run
+    # must never migrate production data. It refuses a legacy tab; scripts/migrate_sheets.py
+    # upgrades it through the state protocol (backup, write, verify); then runs proceed.
+    import importlib.util
+    import os
+
     from faramir.sheet import LEGACY_STATE_HEADERS, STATE_HEADERS
     from faramir.state_integrity import LKG_TAB, META_TAB, STATE_TAB, initial_meta, meta_values, parse_meta, row_values
     from faramir.state_store import StateStore
@@ -353,15 +359,32 @@ def test_legacy_state_tab_is_accepted_backed_up_and_upgraded(run_env):
     for tab in (STATE_TAB, LKG_TAB):
         book.worksheet(tab).rows = [list(r) for r in legacy]
     book.worksheet(META_TAB).rows = meta_values(initial_meta(legacy, "2026-10-21T15:00:00+00:00", "init"))
-    assert StateStore(run_env["gc"], "S", "probe").open().action == "PROCEED"
+    assert StateStore(run_env["gc"], "S", "probe").open().action == "PROCEED"  # still a valid state
 
-    assert main(run_env) == 0
+    assert main(run_env) == 3
+    assert run_env["gc"].writes() == [] and book.worksheet(STATE_TAB).data == [[str(c) for c in r] for r in legacy]
+    alert = json.dumps(run_env["slack"].webhook_posts[0]["payload"])
+    assert "legacy 17-column layout" in alert and "migrate_sheets.py" in alert
+
+    spec = importlib.util.spec_from_file_location("migrate_sheets", os.path.join(
+        os.path.dirname(__file__), "..", "scripts", "migrate_sheets.py"))
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+    from faramir import runtime
+
+    with runtime.use(runtime.RunContext(mode=runtime.LIVE, enabled=True, run_id="migration",
+                                        out_dir=str(run_env["tmp"] / "migration"))):
+        mig.apply(run_env["gc"], "S", "migration")
     assert book.worksheet(STATE_TAB).data[0] == list(STATE_HEADERS)
     lkg = book.worksheet(LKG_TAB).data
     assert lkg[0] == list(STATE_HEADERS) and lkg[1][:17] == [str(c) for c in legacy[1]] and lkg[1][17:] == ["", "", ""]
-    meta = parse_meta(book.worksheet(META_TAB).data)
-    assert meta["lkg"]["status"] == "ok" and meta["state"]["status"] == "ok"
-    assert StateStore(run_env["gc"], "S", "next").open().action == "PROCEED"  # both tabs verify on the new header
+    assert parse_meta(book.worksheet(META_TAB).data)["state"]["status"] == "ok"
+
+    for p in list((run_env["tmp"] / "out").iterdir()):
+        for f in p.iterdir():
+            f.unlink()
+        p.rmdir()
+    assert main(run_env) == 0  # the migrated workbook passes preflight
 
 
 def test_restore_from_a_legacy_layout_backup_upgrades_the_rows():

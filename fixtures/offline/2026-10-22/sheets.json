@@ -18,10 +18,13 @@
     "tmdb_id_override",
     "notes",
     "dom_stale_days",
-    "ww_stale_days"
+    "ww_stale_days",
+    "tn_slug",
+    "identity_confidence",
+    "identity_method"
    ],
    [
-    5001,
+    "5001",
     "tt5001001",
     "Beta Story",
     "Beta Story",
@@ -29,15 +32,18 @@
     "2026-09-20",
     "2026-10-21",
     "active",
-    130000000,
-    140000000,
-    280000000,
-    300000000,
-    33,
+    "130000000",
+    "140000000",
+    "280000000",
+    "300000000",
+    "33",
     "",
     "",
-    0,
-    0
+    "0",
+    "0",
+    "",
+    "",
+    ""
    ]
   ],
   "suggestions": [
@@ -116,10 +122,13 @@
     "tmdb_id_override",
     "notes",
     "dom_stale_days",
-    "ww_stale_days"
+    "ww_stale_days",
+    "tn_slug",
+    "identity_confidence",
+    "identity_method"
    ],
    [
-    5001,
+    "5001",
     "tt5001001",
     "Beta Story",
     "Beta Story",
@@ -127,15 +136,18 @@
     "2026-09-20",
     "2026-10-21",
     "active",
-    130000000,
-    140000000,
-    280000000,
-    300000000,
-    33,
+    "130000000",
+    "140000000",
+    "280000000",
+    "300000000",
+    "33",
     "",
     "",
-    0,
-    0
+    "0",
+    "0",
+    "",
+    "",
+    ""
    ]
   ],
   "state_meta": [
@@ -151,12 +163,12 @@
    ],
    [
     "state",
-    "1",
+    "2",
     "ok",
     "1",
-    "b7d06bb1e4902bfaa82991984daa6c009872ea8c66f2bf12d852e2ce4e22ffd4",
-    "2026-10-21T15:00:00+00:00",
-    "fixture-init",
+    "132b734afbb5e6300ce661d88787cc4dae86212b0ac7318745cacdc710c0203c",
+    "2026-10-23T14:12:06+00:00",
+    "fixture-migration",
     ""
    ],
    [
@@ -164,9 +176,9 @@
     "1",
     "ok",
     "1",
-    "b7d06bb1e4902bfaa82991984daa6c009872ea8c66f2bf12d852e2ce4e22ffd4",
-    "2026-10-21T15:00:00+00:00",
-    "fixture-init",
+    "132b734afbb5e6300ce661d88787cc4dae86212b0ac7318745cacdc710c0203c",
+    "2026-10-23T14:12:06+00:00",
+    "fixture-migration",
     ""
    ],
    [
@@ -175,9 +187,105 @@
     "released",
     "",
     "",
-    "2026-10-21T15:00:00+00:00",
-    "fixture-init",
+    "2026-10-23T14:12:06+00:00",
+    "fixture-migration",
     ""
+   ]
+  ],
+  "Usage": [
+   [
+    "timestamp",
+    "call_label",
+    "input_tokens",
+    "output_tokens",
+    "cache_created",
+    "cache_read",
+    "model"
+   ]
+  ],
+  "identity_overrides": [
+   [
+    "tn_slug",
+    "tmdb_id",
+    "note"
+   ]
+  ],
+  "weekend_history": [
+   [
+    "record_id",
+    "collection_id",
+    "source",
+    "source_url",
+    "chart_type",
+    "weekend_start",
+    "weekend_end",
+    "position",
+    "source_film_key",
+    "title_reported",
+    "slug_year",
+    "tmdb_id",
+    "imdb_id",
+    "identity_confidence",
+    "identity_method",
+    "engagement",
+    "first_us_release",
+    "engagement_start",
+    "total_gross_scope",
+    "source_rank",
+    "source_rank_text",
+    "derived_rank",
+    "derived_rank_basis",
+    "prev_rank_reported",
+    "prev_status",
+    "weekend_gross",
+    "pct_change_reported",
+    "theaters",
+    "theater_avg",
+    "total_gross",
+    "days_in_release",
+    "retrieved_at_utc",
+    "run_id",
+    "parser_version"
+   ]
+  ],
+  "weekend_collections": [
+   [
+    "event_id",
+    "collection_id",
+    "source",
+    "weekend_start",
+    "event",
+    "revision",
+    "expected_rows",
+    "rows_hash",
+    "verified_rows",
+    "reported_count",
+    "reported_total",
+    "parsed_total",
+    "content_hash",
+    "chart_status",
+    "status_detail",
+    "source_url",
+    "http_status",
+    "retrieved_at_utc",
+    "at_utc",
+    "run_id",
+    "parser_version",
+    "error"
+   ]
+  ],
+  "faramir_meta": [
+   [
+    "key",
+    "value",
+    "written_at",
+    "run_id"
+   ],
+   [
+    "schema_version",
+    "2",
+    "2026-10-23T14:12:06+00:00",
+    "fixture-migration"
    ]
   ]
  }

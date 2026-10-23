@@ -142,13 +142,19 @@ def _run(ctx, run_date=None):
     logger.info("=== Faramir daily run: %s (%s, run_id %s) ===", today, ctx.mode, ctx.run_id)
     runtime.note("run_date", str(today))
 
-    # Step 0: Preflight — before any read or write of production systems.
-    # A failure halts the run: no operational write can happen afterwards.
-    missing = [k for k, v in (("FARAMIR_SHEET_ID", sheet_id), ("SLACK_WEBHOOK_URL", slack_url)) if not v]
-    if missing:
-        ctx.halt(f"preflight: missing required settings {missing}")
-        runtime.note("preflight", {"ok": False, "missing_settings": missing})
-        logger.error("Preflight failed: missing %s — stopping with no writes", missing)
+    # Step 0: Preflight (faramir.preflight) — before any read or write of
+    # production systems. A failure halts the run: no operational write can
+    # happen afterwards. Nothing is repaired or migrated here.
+    from faramir import preflight
+
+    settings = preflight.check_settings(live=not ctx.dry_run)
+    if not settings.ok:
+        ctx.halt("preflight: " + "; ".join(settings.problems))
+        runtime.note("preflight", {**settings.as_dict(), "missing_settings": [
+            p.removeprefix("missing required setting ") for p in settings.problems if p.startswith("missing")]})
+        logger.error("Preflight failed: %s — stopping with no writes", settings.problems)
+        if slack_url:
+            post_alert(slack_url, f"Faramir {today}: preflight failed — stopped before any write", settings.problems)
         return
     # The schema-v2 comparison corpus: a legacy (v1) or corrupt file is never
     # used and never silently replaced. ABORT halts all operational writes
@@ -164,10 +170,19 @@ def _run(ctx, run_date=None):
         post_corpus_abort(slack_url, corpus_load.reasons, today)
         logger.error("=== Faramir stopped: comparison corpus ABORT — no picks and no data writes ===")
         return
-    runtime.note("preflight", {"ok": True, "corpus": corpus_load.status})
 
-    # Step 1: Connect to sheets
+    # Step 1: Connect to sheets; verify the schema marker, tabs and headers.
     gc = _sheet_client(ctx)
+    from faramir.history import collection_enabled
+
+    sheets = preflight.check_sheets(gc, sheet_id, collect_history=collection_enabled())
+    runtime.note("preflight", {"ok": sheets.ok, "corpus": corpus_load.status, "problems": sheets.problems,
+                               "checked": ["settings", "corpus"] + sheets.checked})
+    if not sheets.ok:
+        ctx.halt("preflight: " + "; ".join(sheets.problems))
+        post_alert(slack_url, f"Faramir {today}: preflight failed — stopped before any write", sheets.problems)
+        logger.error("=== Faramir stopped: preflight %s ===", sheets.problems)
+        return
 
     # Step 1a: State integrity, before any write. A read error, an
     # unexplained mismatch or another run holding the lock stops the run with

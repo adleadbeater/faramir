@@ -68,10 +68,15 @@ def test_every_sheet_write_function_is_guarded():
     assert unguarded == []
 
 
-def test_usage_tab_creation_only_reachable_from_guarded_flush():
-    callers = [fn.name for fn in _functions("src/faramir/sheet.py")
-               if "_ensure_usage_tab" in {attr_name(c) for c in calls_in(fn)}]
-    assert callers == ["flush_usage_to_sheet"]
+def test_ordinary_run_never_creates_tabs():
+    # Increment 12 (replaces the Usage-tab-creation check): tabs are created only by
+    # scripts/migrate_sheets.py / init_state_integrity.py (create_tab) and the gated corpus
+    # build (append_corpus_meta). The Usage flush no longer creates its tab.
+    creators = sorted(fn.name for fn in _functions("src/faramir/sheet.py")
+                      if "add_worksheet" in {attr_name(c) for c in calls_in(fn)})
+    assert creators == ["append_corpus_meta", "create_tab"]
+    users = sorted(rel for rel, src in sources() if re.search(r"\bcreate_tab\(", src))
+    assert users == ["scripts/init_state_integrity.py", "scripts/migrate_sheets.py", "src/faramir/sheet.py"]
 
 
 def test_every_slack_post_is_guarded():

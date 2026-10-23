@@ -530,3 +530,52 @@ def test_write_without_lock_is_refused():
     with pytest.raises(StateConflict, match="does not hold the state lock"):
         s.write(bumped(rows3()))
     assert [c for c in gc.writes() if c[0] == STATE_TAB] == []
+
+
+# ── Increment 12 (PR-1): an expired lease cannot authorize a late write ──
+
+def test_expired_own_lease_refuses_the_write():
+    from faramir.state_store import LOCK_TTL
+
+    gc = book_with()
+    clock = {"now": NOW}
+    s = StateStore(gc, "S", "slow-run", now_fn=lambda: clock["now"])
+    assert s.open().action == PROCEED
+    s.acquire_lock()
+    before = [list(r) for r in tab(gc, STATE_TAB).data]
+    clock["now"] = NOW + LOCK_TTL + timedelta(seconds=1)   # the run outlived its lease; nobody took the lock
+    with pytest.raises(StateConflict, match="lease is no longer valid"):
+        s.write(bumped(rows3()))
+    assert tab(gc, STATE_TAB).data == before and meta(gc)["state"]["status"] == "ok"
+
+
+def test_lease_expiring_between_backup_and_write_refuses_the_state_write():
+    gc = book_with()
+    clock = {"now": NOW}
+    s = StateStore(gc, "S", "slow-run", now_fn=lambda: clock["now"])
+    s.open()
+    s.acquire_lock()
+    real = s._read_meta
+    calls = {"n": 0}
+
+    def read_meta_then_expire():
+        calls["n"] += 1
+        if calls["n"] == 2:  # after the backup step, before the state write
+            clock["now"] = NOW + timedelta(hours=1)
+        return real()
+
+    s._read_meta = read_meta_then_expire
+    before = [list(r) for r in tab(gc, STATE_TAB).data]
+    with pytest.raises(StateConflict):
+        s.write(bumped(rows3()))
+    assert tab(gc, STATE_TAB).data == before  # state untouched; the next run decides from meta
+
+
+def test_lease_within_ttl_still_writes():
+    gc = book_with()
+    clock = {"now": NOW}
+    s = StateStore(gc, "S", "run", now_fn=lambda: clock["now"])
+    s.open()
+    s.acquire_lock()
+    clock["now"] = NOW + timedelta(minutes=14)  # inside the 15-minute workflow timeout
+    assert s.write(bumped(rows3())) == 2

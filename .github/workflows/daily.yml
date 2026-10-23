@@ -1,12 +1,32 @@
 name: Faramir Daily
+# Fail closed (P0-7). Nothing here runs in production unless the repository variable
+# FARAMIR_ENABLED is exactly 'true' — an unset variable means disabled. A manual dispatch may
+# run a dry run (every write recorded, none performed) while production is disabled.
 on:
   schedule:
-    - cron: '0 15 * * *'   # 10am ET (15:00 UTC during EDT; drifts to 10am EST in winter)
-  workflow_dispatch:        # manual trigger button
+    - cron: '0 15 * * *'   # 10am ET during EDT (11am EST in winter)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: record every write, perform none (allowed while production is disabled)"
+        type: boolean
+        default: true
+
+# One production run at a time across every Faramir workflow (state, history and delivery
+# protocols rely on it). Queued, never cancelled mid-run.
+concurrency:
+  group: faramir-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   run:
+    if: ${{ vars.FARAMIR_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
     runs-on: ubuntu-latest
+    # Well under the 45-minute state-lock lease (faramir.state_store.LOCK_TTL): GitHub stops a
+    # stuck job long before its lease could lapse, and an expired lease refuses to write anyway.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -15,10 +35,16 @@ jobs:
         with:
           python-version: '3.11'
 
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
 
-      - run: python scripts/run_daily.py
+      - name: Tests (no credentials, network blocked) — must pass before the run
+        run: python -m pytest -q
+
+      - name: Daily run
+        run: python scripts/run_daily.py ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
         env:
+          FARAMIR_ENABLED: ${{ vars.FARAMIR_ENABLED }}       # the code checks the same variable
+          FARAMIR_COLLECT_HISTORY: 'false'                   # weekend history: off (PR-16)
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -27,3 +53,13 @@ jobs:
           GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
           FARAMIR_SHEET_ID: ${{ secrets.FARAMIR_SHEET_ID }}
           CEREBRO_MW_SHEET_ID: ${{ secrets.CEREBRO_MW_SHEET_ID }}
+          GITHUB_WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Keep the run report (report.json, writes, Slack preview, state snapshot)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: faramir-run-${{ github.run_id }}
+          path: out/
+          retention-days: 90
+          if-no-files-found: ignore
