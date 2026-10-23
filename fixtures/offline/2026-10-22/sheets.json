@@ -79,6 +79,88 @@
     "",
     ""
    ]
+  ],
+  "state_lkg": [
+   [
+    "tmdb_id",
+    "imdb_id",
+    "canonical_title",
+    "bom_title_seen",
+    "release_date",
+    "first_seen",
+    "last_seen",
+    "status",
+    "domestic_yesterday",
+    "domestic_today",
+    "worldwide_yesterday",
+    "worldwide_today",
+    "days_in_release",
+    "tmdb_id_override",
+    "notes",
+    "dom_stale_days",
+    "ww_stale_days"
+   ],
+   [
+    5001,
+    "tt5001001",
+    "Beta Story",
+    "Beta Story",
+    "2026-09-18",
+    "2026-09-20",
+    "2026-10-21",
+    "active",
+    130000000,
+    140000000,
+    280000000,
+    300000000,
+    33,
+    "",
+    "",
+    0,
+    0
+   ]
+  ],
+  "state_meta": [
+   [
+    "key",
+    "generation",
+    "status",
+    "row_count",
+    "checksum",
+    "written_at",
+    "run_id",
+    "expires_at"
+   ],
+   [
+    "state",
+    "1",
+    "ok",
+    "1",
+    "b7d06bb1e4902bfaa82991984daa6c009872ea8c66f2bf12d852e2ce4e22ffd4",
+    "2026-10-21T15:00:00+00:00",
+    "fixture-init",
+    ""
+   ],
+   [
+    "lkg",
+    "1",
+    "ok",
+    "1",
+    "b7d06bb1e4902bfaa82991984daa6c009872ea8c66f2bf12d852e2ce4e22ffd4",
+    "2026-10-21T15:00:00+00:00",
+    "fixture-init",
+    ""
+   ],
+   [
+    "lock",
+    "",
+    "released",
+    "",
+    "",
+    "2026-10-21T15:00:00+00:00",
+    "fixture-init",
+    ""
+   ]
   ]
  }
 }

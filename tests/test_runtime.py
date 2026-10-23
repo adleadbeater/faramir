@@ -89,7 +89,7 @@ def _book():
 
 
 @pytest.mark.parametrize("call", [
-    lambda s, gc: s.write_state(gc, "S", [{"tmdb_id": 1}]),
+    lambda s, gc: s.write_values(gc, "S", "state", [["tmdb_id"], ["1"]], "write_state"),
     lambda s, gc: s.append_suggestions(gc, "S", [{"headline": "h"}]),
     lambda s, gc: s.write_suggestions(gc, "S", [{"headline": "h"}]),
     lambda s, gc: s.append_corpus_meta(gc, "S", {"build_date": "x"}),
@@ -105,7 +105,7 @@ def test_sheet_writes_in_dry_run_touch_nothing(call):
 
 
 @pytest.mark.parametrize("call", [
-    lambda s, gc: s.write_state(gc, "S", [{"tmdb_id": 1}]),
+    lambda s, gc: s.write_values(gc, "S", "state", [["tmdb_id"], ["1"]], "write_state"),
     lambda s, gc: s.append_suggestions(gc, "S", [{"headline": "h"}]),
     lambda s, gc: s.write_suggestions(gc, "S", [{"headline": "h"}]),
 ])

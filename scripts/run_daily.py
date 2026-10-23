@@ -137,14 +137,15 @@ def _run(ctx, run_date=None):
     from faramir.milestone import find_milestones
     from faramir.cerebro import load_cerebro, build_talent_signals, build_franchise_signals
     from faramir.sheet import (
-        read_state,
-        write_state,
+        SheetReadError,
         read_suggestions,
         append_suggestions,
         flush_usage_to_sheet,
     )
     from faramir.claude_select import build_payload, select_picks
-    from faramir.slack_post import post_header, post_pick, post_init, post_failure, post_corpus_abort
+    from faramir.slack_post import post_header, post_pick, post_init, post_failure, post_corpus_abort, post_alert
+    from faramir.state_integrity import ABORT as STATE_ABORT, PROCEED
+    from faramir.state_store import StateConflict, StateRecoveryRefused, StateStore
     from faramir.tmdb import resolve_tmdb_id, get_movie_details
     from faramir.feedback import collect_feedback
     from faramir.sheet import write_suggestions
@@ -190,6 +191,53 @@ def _run(ctx, run_date=None):
     # Step 1: Connect to sheets
     gc = _sheet_client(ctx)
 
+    # Step 1a: State integrity, before any write. A read error, an
+    # unexplained mismatch or another run holding the lock stops the run with
+    # no writes. An interrupted write with a verified backup is recovered —
+    # and that recovery run makes no picks.
+    store = StateStore(gc, sheet_id, ctx.run_id)
+    try:
+        decision = store.open()
+    except SheetReadError as exc:
+        decision = None
+        ctx.halt(f"state read failed: {exc}")
+    runtime.note("state", {"decision": decision.action if decision else "READ_ERROR",
+                           "reason": decision.reason if decision else ctx.halted_reason})
+    if decision is not None and decision.action not in (PROCEED, STATE_ABORT):
+        try:
+            store.acquire_lock()
+            try:
+                message = store.recover()
+            finally:
+                store.release_lock()
+        except (StateConflict, StateRecoveryRefused) as exc:
+            ctx.halt(f"state recovery not performed: {exc}")
+        else:
+            runtime.note("state_recovery", message)
+            ctx.halt(f"recovery run: {message} — no picks this run")
+            post_alert(slack_url, f"Faramir {today}: state recovered — no picks this run", [message])
+            return
+    elif decision is not None and decision.action == STATE_ABORT:
+        ctx.halt(f"state integrity: {decision.reason}")
+    if ctx.halted_reason:
+        post_alert(slack_url, f"Faramir {today}: stopped before any write — state needs attention", [ctx.halted_reason])
+        logger.error("=== Faramir stopped: %s ===", ctx.halted_reason)
+        return
+    try:
+        store.acquire_lock()
+    except StateConflict as exc:
+        ctx.halt(f"state lock: {exc}")
+        post_alert(slack_url, f"Faramir {today}: another run is using the state — stopped", [str(exc)])
+        return
+
+    def _release_lock():
+        try:
+            store.release_lock()
+        except Exception:
+            logger.exception("Could not release the state lock (it expires on its own)")
+
+    ctx.on_exit.append(_release_lock)
+
     # Step 1b: Collect feedback on yesterday's picks (before anything else)
     if slack_bot_token and slack_channel_id:
         try:
@@ -203,9 +251,15 @@ def _run(ctx, run_date=None):
     else:
         logger.info("SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set — skipping feedback collection")
 
-    # Step 2: Load state tab — detect cold start
-    state_rows = read_state(gc, sheet_id)
+    # Step 2: Load state tab — detect cold start (validated above). An empty
+    # state is only seeded when explicitly requested.
+    state_rows = store.records
     cold_start = len(state_rows) == 0
+    if cold_start and not runtime.env_flag("FARAMIR_COLD_START"):
+        store.release_lock()
+        ctx.halt("state tab is empty; seeding requires FARAMIR_COLD_START=true")
+        post_alert(slack_url, f"Faramir {today}: state is empty — not seeding without FARAMIR_COLD_START", [])
+        return
     state_by_tmdb: dict[int, dict] = {}
     for r in state_rows:
         try:
@@ -374,7 +428,7 @@ def _run(ctx, run_date=None):
     })
     if cold_start:
         logger.info("Cold start detected — seeding state, skipping picks")
-        write_state(gc, sheet_id, list(new_state.values()))
+        store.write(list(new_state.values()))
         post_init(slack_url, sum(1 for r in new_state.values() if r.get("status") == "active"))
         return
 
@@ -613,7 +667,7 @@ def _run(ctx, run_date=None):
     if suggestion_rows:
         append_suggestions(gc, sheet_id, suggestion_rows)
 
-    write_state(gc, sheet_id, list(new_state.values()))
+    runtime.note("state_generation", store.write(list(new_state.values())))
 
     # Step 14: Flush Claude usage records to the Usage sheet tab (fails open)
     runtime.note("claude_usage", list(sheet_module._USAGE_LOG))
@@ -673,6 +727,8 @@ def main(argv: list[str] | None = None) -> int:
                 except Exception:
                     logger.exception("Could not send failure alert")
         finally:
+            for cleanup in ctx.on_exit:
+                cleanup()
             ctx.write_artifacts()
             logger.info("Run artifacts: %s (writes: %s)", ctx.out_dir, ctx.counts())
     if ctx.halted_reason and rc == 0:

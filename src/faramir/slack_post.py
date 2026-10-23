@@ -227,3 +227,10 @@ def post_corpus_abort(webhook_url: str, reasons: list[str], run_date: date) -> N
         f"{lines}"
     )
     _post_webhook(webhook_url, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}], kind="alert")
+
+
+def post_alert(webhook_url: str, title: str, lines: list[str]) -> None:
+    """A failure/recovery alert (write-guard category ``alert``)."""
+    body = "\n".join(f"• {line}" for line in lines[:6])
+    text = f":warning: *{title}*" + (f"\n{body}" if body else "")
+    _post_webhook(webhook_url, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}], kind="alert")

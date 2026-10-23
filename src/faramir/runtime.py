@@ -63,6 +63,7 @@ class RunContext:
     operations: list[dict] = field(default_factory=list)  # every authorized/recorded/blocked write
     slack_preview: list[dict] = field(default_factory=list)
     report: dict = field(default_factory=dict)
+    on_exit: list = field(default_factory=list)  # cleanups run before artifacts are written
     _dry_ts: int = 0
 
     @property

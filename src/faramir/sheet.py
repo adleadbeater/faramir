@@ -60,30 +60,54 @@ def get_sheet_client() -> gspread.Client:
     return gspread.service_account_from_dict(json.loads(sa_json))
 
 
-def read_state(client: gspread.Client, sheet_id: str) -> list[dict]:
-    """Read 'state' tab, return list of dicts keyed by column headers."""
+class SheetReadError(RuntimeError):
+    """A Sheets read failed. Never treated as an empty tab."""
+
+
+class TabMissing(SheetReadError):
+    """The requested worksheet does not exist."""
+
+
+def read_values(client: gspread.Client, sheet_id: str, tab: str) -> list[list[str]]:
+    """Raw cell values of a tab. Raises (never returns []) on any failure."""
     try:
-        sh = client.open_by_key(sheet_id)
-        ws = sh.worksheet("state")
-        return ws.get_all_records()
+        ws = client.open_by_key(sheet_id).worksheet(tab)
+    except gspread.WorksheetNotFound as exc:
+        raise TabMissing(tab) from exc
     except Exception as exc:
-        logger.error("read_state failed: %s", exc)
-        return []
+        raise SheetReadError(f"{tab}: {type(exc).__name__}: {exc}") from exc
+    try:
+        return ws.get_all_values()
+    except Exception as exc:
+        raise SheetReadError(f"{tab}: {type(exc).__name__}: {exc}") from exc
 
 
-def write_state(client: gspread.Client, sheet_id: str, rows: list[dict]) -> None:
-    """Write full state tab (clear + rewrite). Preserves header row."""
-    # Write headers then data
-    data = [STATE_HEADERS]
-    for row in rows:
-        data.append([str(row.get(h, "")) for h in STATE_HEADERS])
-    if not authorize("sheets", "write_state", {"tab": "state", "rows": len(rows), "values": data}):
-        return
+def write_values(client: gspread.Client, sheet_id: str, tab: str, values: list[list[str]], op: str) -> bool:
+    """Overwrite a tab in place — never clear() — then trim leftover rows.
+
+    Guarded: returns False without touching Sheets in dry-run; raises
+    WriteBlocked when the run is halted or disabled.
+    """
+    if not authorize("sheets", op, {"tab": tab, "rows": len(values), "values": values}):
+        return False
+    ws = client.open_by_key(sheet_id).worksheet(tab)
+    previous = len(ws.get_all_values())
+    ws.update(values=values, range_name="A1")
+    if previous > len(values):
+        ws.batch_clear([f"A{len(values) + 1}:ZZ{previous}"])
+    logger.info("write_values: %s %d rows (%s)", tab, len(values), op)
+    return True
+
+
+def create_tab(client: gspread.Client, sheet_id: str, title: str, values: list[list[str]]) -> bool:
+    """Create a worksheet with initial values (state-integrity initialization only). Guarded."""
+    if not authorize("sheets", "create_tab", {"tab": title, "rows": len(values), "values": values}):
+        return False
     sh = client.open_by_key(sheet_id)
-    ws = sh.worksheet("state")
-    ws.clear()
-    ws.update("A1", data)
-    logger.info("write_state: wrote %d rows", len(rows))
+    ws = sh.add_worksheet(title=title, rows=max(100, len(values) + 10), cols=max(26, max((len(r) for r in values), default=1)))
+    ws.update(values=values, range_name="A1")
+    logger.info("create_tab: %s with %d rows", title, len(values))
+    return True
 
 
 def read_suggestions(client: gspread.Client, sheet_id: str) -> list[dict]:

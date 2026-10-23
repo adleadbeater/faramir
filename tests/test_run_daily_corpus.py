@@ -12,6 +12,7 @@ from tests.fakes.fake_anthropic import FakeAnthropic
 from tests.fakes.fake_gspread import FakeClient
 from tests.fakes.fake_http import FakeHTTP, FakeResponse
 from tests.fakes.fake_slack import FakeSlack
+from tests.fakes.state_book import init_book, state_row
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -50,14 +51,7 @@ def env(monkeypatch, tmp_path):
 
     gc = FakeClient()
     book = gc.book("S")
-    state_row = {
-        "tmdb_id": 5001, "imdb_id": "tt5001001", "canonical_title": "Beta Story", "bom_title_seen": "Beta Story",
-        "release_date": "2026-09-18", "first_seen": "2026-09-20", "last_seen": "2026-10-21", "status": "active",
-        "domestic_yesterday": 130_000_000, "domestic_today": 140_000_000, "worldwide_yesterday": 280_000_000,
-        "worldwide_today": 300_000_000, "days_in_release": 33, "tmdb_id_override": "", "notes": "",
-        "dom_stale_days": 0, "ww_stale_days": 0,
-    }
-    book.add_tab("state", [sheet.STATE_HEADERS, [state_row.get(h, "") for h in sheet.STATE_HEADERS]])
+    init_book(book, [state_row(5001, "Beta Story", imdb_id="tt5001001")])
     book.add_tab("suggestions")
     monkeypatch.setattr(sheet, "get_sheet_client", lambda: gc)
 

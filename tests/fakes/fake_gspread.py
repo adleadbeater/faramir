@@ -73,16 +73,22 @@ class FakeWorksheet:
         self._failures: dict[str, list] = {}
 
     # ── failure injection ────────────────────────────────────────────────
-    def fail_on(self, method: str, exc: Exception, after: int = 0) -> None:
-        """Raise ``exc`` on the (after+1)-th call to ``method``."""
-        self._failures[method] = [after, exc]
+    def fail_on(self, method: str, exc: Exception, after: int = 0, partial: int | None = None) -> None:
+        """Raise ``exc`` on the (after+1)-th call to ``method``.
 
-    def _record(self, method: str, *args) -> None:
+        For ``update``, ``partial=k`` first writes the first k rows of the
+        values (a write interrupted part-way), then raises.
+        """
+        self._failures[method] = [after, exc, partial]
+
+    def _record(self, method: str, *args, on_fail=None) -> None:
         self._client.calls.append((self.title, method, args))
         spec = self._failures.get(method)
         if spec is not None:
             if spec[0] == 0:
                 del self._failures[method]
+                if on_fail is not None and spec[2] is not None:
+                    on_fail(spec[2])
                 raise spec[1]
             spec[0] -= 1
 
@@ -143,8 +149,8 @@ class FakeWorksheet:
             range_name, values = values, range_name
         range_name = range_name or "A1"
         values = [list(v) for v in values]
-        self._record("update", range_name, values)
         row0, col0, _, _ = _parse_range(range_name)
+        self._record("update", range_name, values, on_fail=lambda k: self._write_block(row0, col0, values[:k]))
         self._write_block(row0, col0, values)
         return {"updatedRange": f"{self.title}!{range_name}"}
 
@@ -184,6 +190,7 @@ class FakeSpreadsheet:
         self.id = key
         self._sheets: dict[str, FakeWorksheet] = {}
         self._failures: dict[str, Exception] = {}
+        self.add_worksheet_failure: Exception | None = None
 
     def add_tab(self, title: str, rows: list[list] | None = None) -> FakeWorksheet:
         ws = FakeWorksheet(self._client, title, rows)
@@ -203,6 +210,9 @@ class FakeSpreadsheet:
 
     def add_worksheet(self, title: str, rows: int = 1000, cols: int = 26, **kwargs) -> FakeWorksheet:
         self._client.calls.append((title, "add_worksheet", (rows, cols)))
+        if self.add_worksheet_failure is not None:
+            exc, self.add_worksheet_failure = self.add_worksheet_failure, None
+            raise exc
         return self.add_tab(title)
 
 

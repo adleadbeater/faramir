@@ -81,39 +81,29 @@ def _state_row(tmdb_id, title, dom):
     return {"tmdb_id": tmdb_id, "canonical_title": title, "status": "active", "domestic_today": dom}
 
 
-def test_state_round_trip_end_state():
-    from faramir.sheet import STATE_HEADERS, read_state, write_state
+def test_write_values_round_trip_never_clears():
+    # Replaces the Increment 0 baselines for write_state/read_state: the state
+    # tab is overwritten in place and leftover rows trimmed — no clear().
+    from faramir.sheet import read_values, write_values
 
     gc = FakeClient()
-    gc.book("S").add_tab("state")
-    write_state(gc, "S", [_state_row(1, "A", 100), _state_row(2, "B", 200)])
-    rows = read_state(gc, "S")
-    assert [r["tmdb_id"] for r in rows] == [1, 2]
-    assert gc.book("S").worksheet("state").data[0] == STATE_HEADERS
+    gc.book("S").add_tab("state", [["h"], ["1"], ["2"], ["3"]])
+    write_values(gc, "S", "state", [["h"], ["9"]], "write_state")
+    assert read_values(gc, "S", "state") == [["h"], ["9"]]
+    assert "clear" not in [c[1] for c in gc.writes()]
 
 
-@pytest.mark.baseline
-def test_baseline_write_state_clears_before_writing():
-    # Replaced in Increment 4 (state integrity): no clear() on state.
-    from faramir.sheet import write_state
-
-    gc = FakeClient()
-    gc.book("S").add_tab("state")
-    write_state(gc, "S", [_state_row(1, "A", 100)])
-    methods = [c[1] for c in gc.writes()]
-    assert methods[0] == "clear" and "update" in methods
-
-
-@pytest.mark.baseline
-def test_baseline_read_state_swallows_api_errors():
-    # Defect: an API error looks identical to an empty (cold-start) state tab.
-    # Replaced in Increment 4: read errors abort the run with zero writes.
-    from faramir.sheet import read_state
+def test_read_values_raises_on_api_error_never_returns_empty():
+    # Replaces test_baseline_read_state_swallows_api_errors (Increment 4).
+    from faramir.sheet import SheetReadError, TabMissing, read_values
 
     gc = FakeClient()
     gc.book("S").add_tab("state", [["tmdb_id"], ["1"]])
     gc.book("S").fail_worksheet("state", make_api_error())
-    assert read_state(gc, "S") == []
+    with pytest.raises(SheetReadError):
+        read_values(gc, "S", "state")
+    with pytest.raises(TabMissing):
+        read_values(gc, "S", "nope")
 
 
 def test_append_suggestions_end_state():
