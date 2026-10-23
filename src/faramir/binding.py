@@ -100,11 +100,11 @@ def _evidence(c: Candidate, film: dict, data_date: str, gross_as_of: str | None)
         "data_date": data_date,
         "corpus_gross_as_of": gross_as_of,
         "event": {"axis": c.axis, "kind": c.kind, "milestone_type": c.milestone_type, "threshold": c.threshold},
-        "active": {k: film.get(k) for k in ("tmdb_id", "title", "genres", "domestic_yesterday", "domestic_today",
-                                             "worldwide_yesterday", "worldwide_today", "days_in_release")},
+        "active": {k: film.get(k) for k in ("tmdb_id", "title", "genres", "director", "lead_cast", "domestic_yesterday",
+                                             "domestic_today", "worldwide_yesterday", "worldwide_today", "days_in_release")},
         "comp": None if comp is None else {k: comp.get(k) for k in (
-            "imdb_id", "tmdb_id", "title", "release_year", "genres", "is_best_picture", "domestic_lifetime",
-            "domestic_status", "worldwide_lifetime", "worldwide_status", "identity_status")},
+            "imdb_id", "tmdb_id", "title", "release_year", "genres", "director", "lead_cast", "is_best_picture",
+            "domestic_lifetime", "domestic_status", "worldwide_lifetime", "worldwide_status", "identity_status")},
         "categories": list(c.categories),
     }
 

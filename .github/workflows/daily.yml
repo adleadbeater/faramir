@@ -4,7 +4,10 @@ name: Faramir Daily
 # run a dry run (every write recorded, none performed) while production is disabled.
 on:
   schedule:
-    - cron: '0 15 * * *'   # 10am ET during EDT (11am EST in winter)
+    # 15:00 UTC = 11:00 EDT (second Sunday of March to first Sunday of November) and 10:00 EST
+    # (rest of the year). GitHub cron is UTC-only. A year-round 10:00 ET needs the change proposed in
+    # docs/v2/phase0_remediation/README.md (not applied: the schedule changes only with approval).
+    - cron: '0 15 * * *'
   workflow_dispatch:
     inputs:
       dry_run:

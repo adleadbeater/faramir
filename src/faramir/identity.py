@@ -104,6 +104,72 @@ def _int(value) -> int | None:
 
 
 @dataclass
+class Overrides:
+    """Editor overrides by TN slug. A slug with conflicting or malformed rows is never resolved from
+    the tab: it maps to an OverrideConflict and the film stays unresolved until an editor fixes it."""
+    by_slug: dict = field(default_factory=dict)          # slug -> int | OverrideConflict
+    problems: list[str] = field(default_factory=list)    # diagnostics for the run report and header
+
+    def get(self, slug):
+        return self.by_slug.get(slug)
+
+    def __contains__(self, slug):
+        return slug in self.by_slug
+
+
+@dataclass
+class OverrideConflict:
+    slug: str
+    values: list[str]
+    reason: str
+
+
+def parse_overrides(values: list[list]) -> Overrides:
+    """Parse the editor-owned identity_overrides tab (tn_slug, tmdb_id, note).
+
+    * identical duplicate rows for a slug: one mapping (noted);
+    * different tmdb_ids for a slug, or a malformed tmdb_id on a row with a slug: conflict — the
+      slug resolves to nothing and the reason is reported;
+    * a row with a tmdb_id but no slug, or an unknown header: reported, ignored.
+    """
+    out = Overrides()
+    if not values:
+        return out
+    header = [str(h).strip() for h in values[0]]
+    if "tn_slug" not in header or "tmdb_id" not in header:
+        out.problems.append(f"identity_overrides header {header} lacks tn_slug/tmdb_id — tab ignored")
+        return out
+    seen: dict[str, list[tuple[int, str]]] = {}
+    for n, r in enumerate(values[1:], start=2):
+        r = [str(c) for c in r] + [""] * len(header)
+        slug, tid = r[header.index("tn_slug")].strip(), r[header.index("tmdb_id")].strip()
+        if not slug and not tid:
+            continue
+        if not slug:
+            out.problems.append(f"identity_overrides row {n}: tmdb_id {tid!r} without a tn_slug — ignored")
+            continue
+        seen.setdefault(slug, []).append((n, tid))
+    for slug, rows in seen.items():
+        raw = [t for _, t in rows]
+        bad = [f"row {n}: {t!r}" for n, t in rows if not t.isdigit()]
+        distinct = sorted({t for t in raw if t.isdigit()}, key=int)
+        if bad:
+            out.by_slug[slug] = OverrideConflict(slug, raw, f"malformed tmdb_id ({'; '.join(bad)})")
+        elif len(distinct) > 1:
+            out.by_slug[slug] = OverrideConflict(slug, raw, f"conflicting tmdb_ids {distinct} "
+                                                            f"(rows {', '.join(str(n) for n, _ in rows)})")
+        else:
+            out.by_slug[slug] = int(distinct[0])
+            if len(rows) > 1:
+                out.problems.append(f"identity_overrides: {slug} listed {len(rows)} times with the same tmdb_id "
+                                    f"{distinct[0]} (rows {', '.join(str(n) for n, _ in rows)}) — used once")
+    for c in out.by_slug.values():
+        if isinstance(c, OverrideConflict):
+            out.problems.append(f"identity_overrides: {c.slug} not used — {c.reason}")
+    return out
+
+
+@dataclass
 class ChartEntry:
     title: str
     tn_slug: str
@@ -270,7 +336,7 @@ def search_identity(entry: ChartEntry, search: Callable[[str, int | None], list[
     return ident
 
 
-def resolve(entry: ChartEntry, state_rows: list[dict], overrides: dict[str, int],
+def resolve(entry: ChartEntry, state_rows: list[dict], overrides,
             search: Callable[[str, int | None], list[dict]], details: Callable[[int], dict],
             release_dates: Callable[[int], dict]) -> Identity:
     if is_rerelease(entry.slug_year, entry.chart_date):
@@ -302,6 +368,10 @@ def resolve(entry: ChartEntry, state_rows: list[dict], overrides: dict[str, int]
         return ident
 
     tab_override = overrides.get(entry.tn_slug) if entry.tn_slug else None
+    if isinstance(tab_override, OverrideConflict):
+        return Identity(entry.title, entry.tn_slug, "unresolved", method="override", state_row=row,
+                        reason=f"override_conflict: identity_overrides {tab_override.reason} — fix the tab; "
+                               "no identity is guessed", considered=considered)
     if tab_override:
         ident = Identity(entry.title, entry.tn_slug, "unresolved", tmdb_id=tab_override, method="override",
                          confidence="manual", state_row=row, considered=considered)
@@ -311,6 +381,11 @@ def resolve(entry: ChartEntry, state_rows: list[dict], overrides: dict[str, int]
         return need_details(ident)
 
     if row is not None:
+        raw_override = str(row.get("tmdb_id_override") or "").strip()
+        if raw_override and _int(raw_override) is None:
+            return Identity(entry.title, entry.tn_slug, "unresolved", method="state_override", state_row=row,
+                            reason=f"override_malformed: state tmdb_id_override {raw_override!r} is not a TMDB id — "
+                                   "fix the cell; no identity is guessed", considered=considered)
         row_override = _int(row.get("tmdb_id_override"))
         if row_override and row_override != _int(row.get("tmdb_id")):
             ident = Identity(entry.title, entry.tn_slug, "unresolved", tmdb_id=row_override, method="state_override",

@@ -10,7 +10,10 @@ Per-pick ``delivery_state`` on the suggestions tab (schema v2):
   not_delivered  never attempted (logged 'planned', no Slack call made) — safe to retry
   unconfirmed    an attempt was made and a reliable history read did not find
                  it — the outcome is still ambiguous, so it is NEVER retried
-                 automatically; it keeps suppressing and is listed for review
+                 automatically; it keeps suppressing and is listed for review.
+                 Every later complete history read looks for it again: if one
+                 positively identifies the message (metadata or visible ref),
+                 it becomes 'posted'; otherwise nothing changes
   expired        undelivered and no longer eligible for automatic retry
   dismissed      an operator chose not to deliver it
   legacy_unknown migrated pre-v2 row without a Slack ts
@@ -43,6 +46,7 @@ from faramir.suggestions import Table, _norm, update_by_id
 logger = logging.getLogger(__name__)
 
 OPEN = {"planned", "sending", "unknown"}
+RECHECK = {"unconfirmed"}  # ambiguous: confirmed from history if found; never reposted automatically
 NON_SUPPRESSING = {"not_delivered", "expired", "failed", "dismissed"}
 REPLAYABLE = {"not_delivered", "failed"}
 COUNTS_TOWARD_TODAY = {"planned", "sending", "unknown", "posted"}
@@ -92,6 +96,7 @@ def reconcile(client, sheet_id: str, table: Table, slack: SlackTarget, run_date:
     oldest = datetime.combine(run_date - timedelta(days=RECONCILE_WINDOW_DAYS), time.min, tzinfo=timezone.utc)
     window_start = (run_date - timedelta(days=RECONCILE_WINDOW_DAYS)).isoformat()
     open_rows = [r for r in table.rows if r.get("delivery_state") in OPEN]
+    recheck_rows = [r for r in table.rows if r.get("delivery_state") in RECHECK]
     hist = fetch_tagged(slack.bot_token, slack.channel_id, oldest.timestamp())
     rec = Reconciliation(history_ok=hist.ok, history_error=hist.error, pages=hist.pages,
                          matched_by_metadata=hist.matched_by_metadata, matched_by_ref=hist.matched_by_ref)
@@ -126,6 +131,14 @@ def reconcile(client, sheet_id: str, table: Table, slack: SlackTarget, run_date:
                                                      "— check the channel, then replay or dismiss"}
             else:
                 rec.still_open.append(row.sid)
+    for row in recheck_rows:
+        found = sorted(hist.picks.get(row.sid, []))
+        if found and str(row.get("run_date")) >= window_start:
+            note = "confirmed from Slack history after being unconfirmed"
+            if len(found) > 1:
+                note += f"; DUPLICATE POSTS {found} — review"
+            changes[row.sid] = {"delivery_state": "posted", "slack_ts": found[0], "delivery_note": note}
+        # Not found (or outside the window): stays unconfirmed — absence is not proof either way.
     if changes:
         res = update_by_id(client, sheet_id, changes, "reconcile_delivery")
         rec.refused = res.refused

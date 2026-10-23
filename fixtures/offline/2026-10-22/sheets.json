@@ -271,7 +271,8 @@
     "at_utc",
     "run_id",
     "parser_version",
-    "error"
+    "error",
+    "record_hashes"
    ]
   ],
   "faramir_meta": [

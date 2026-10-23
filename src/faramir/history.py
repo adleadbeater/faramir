@@ -80,11 +80,15 @@ COLLECTION_HEADERS = [
     "expected_rows", "rows_hash", "verified_rows", "reported_count", "reported_total", "parsed_total",
     "content_hash", "chart_status", "status_detail", "source_url", "http_status", "retrieved_at_utc",
     "at_utc", "run_id", "parser_version", "error",
+    "record_hashes",  # begin/commit: "record_id:content_hash" for every record — what a valid row must contain
 ]
 EVENTS = ("begin", "commit", "observe", "reject", "abort")
 # Columns that describe this collection attempt, not the content; excluded from verification and
 # from duplicate comparison (a resumed or concurrent append may carry another run's values).
 ATTEMPT_COLUMNS = ("retrieved_at_utc", "run_id")
+# Never blank in a complete row (blank here = a row cut off mid-write).
+REQUIRED_CELLS = ("record_id", "collection_id", "source", "weekend_start", "source_film_key", "weekend_gross",
+                  "total_gross", "parser_version")
 
 
 class HistoryReadError(RuntimeError):
@@ -172,6 +176,53 @@ def _content(values: list[str]) -> tuple:
     return tuple(v for h, v in zip(HISTORY_HEADERS, values) if h not in ATTEMPT_COLUMNS)
 
 
+def content_hash(values: list[str]) -> str:
+    """Hash of one history row's content (attempt columns excluded). A physical row is valid only if
+    this equals the hash its collection committed for that record_id."""
+    return _sha(*_content(values))
+
+
+def record_hashes_cell(rows: list[list[str]]) -> str:
+    return ",".join(f"{r[0]}:{content_hash(r)}" for r in sorted(rows, key=lambda r: r[0]))
+
+
+def parse_record_hashes(cell: str) -> dict[str, str]:
+    out = {}
+    for part in (cell or "").split(","):
+        if ":" in part:
+            rid, h = part.split(":", 1)
+            out[rid.strip()] = h.strip()
+    return out
+
+
+@dataclass
+class RecordCheck:
+    valid: dict[str, dict]                                  # record_id -> first valid physical row
+    missing: list[str] = field(default_factory=list)        # expected records with no valid copy
+    partial: int = 0                                        # copies with empty cells (cut off mid-row)
+    mismatched: int = 0                                     # complete copies whose content differs (e.g. edited grosses)
+    unexpected: int = 0                                     # rows under this collection with an unknown record_id
+
+
+def check_records(log: "Log", coll_id: str, expected: dict[str, str]) -> RecordCheck:
+    """Match physical rows to the committed record hashes. Invalid copies are ignored, never removed."""
+    out = RecordCheck(valid={})
+    for r in log.rows(coll_id):
+        rid = r["record_id"]
+        if rid not in expected:
+            out.unexpected += 1
+            continue
+        values = [r[h] for h in HISTORY_HEADERS]
+        if content_hash(values) == expected[rid]:
+            out.valid.setdefault(rid, r)
+        elif any(r[h] == "" for h in REQUIRED_CELLS):
+            out.partial += 1
+        else:
+            out.mismatched += 1
+    out.missing = sorted(set(expected) - set(out.valid))
+    return out
+
+
 # ── reading ──────────────────────────────────────────────────────────────
 
 def _read(gc, sheet_id: str, tab: str, headers: list[str]) -> list[dict]:
@@ -213,7 +264,7 @@ def read_log(gc, sheet_id: str) -> Log:
 
 @dataclass
 class Plan:
-    action: str                              # disabled | reject | observe | begin | resume
+    action: str                              # disabled | reject | observe | repair | begin | resume
     chart: Chart
     collection_id: str
     revision: int | None = None
@@ -225,7 +276,7 @@ class Plan:
 
 @dataclass
 class Result:
-    status: str          # disabled | rejected | unchanged | committed | resumed_committed | unverified | dry_run | read_failed
+    status: str          # disabled | rejected | unchanged | repaired | committed | resumed_committed | unverified | dry_run | read_failed
     collection_id: str | None = None
     revision: int | None = None
     rows_written: int = 0
@@ -254,12 +305,17 @@ def plan_collection(log: Log, chart: Chart, identities: dict[str, dict], retriev
                and e["collection_id"] not in aborted
                and (now - (_parse_utc(e["at_utc"]) or now)) > ORPHAN_AFTER]
 
+    expected = {r[0]: content_hash(r) for r in rows}
     if coll in committed_ids:
+        damaged = check_records(log, coll, expected).missing
+        if damaged:
+            # Append-only repair: fresh copies of records whose committed rows are partial or altered.
+            return Plan("repair", chart, coll, rows=rows, missing=[r for r in rows if r[0] in damaged], orphans=orphans)
         return Plan("observe", chart, coll, rows=rows, orphans=orphans)
     mine = [e for e in begun if e["collection_id"] == coll]
     if mine:
-        present = {r["record_id"] for r in log.rows(coll)}
-        missing = [r for r in rows if r[0] not in present]
+        valid = set(check_records(log, coll, expected).valid)
+        missing = [r for r in rows if r[0] not in valid]  # never written, cut off, or written differently
         return Plan("resume", chart, coll, revision=int(mine[0]["revision"] or 0), rows=rows, missing=missing,
                     orphans=orphans)
     revision = max((int(e["revision"] or 0) for e in begun), default=0) + 1
@@ -276,7 +332,9 @@ def _event(plan: Plan, event: str, run_id: str, retrieved_at: str, now: datetime
         "reported_count": c.reported_count, "reported_total": c.reported_total, "parsed_total": c.parsed_total,
         "content_hash": c.content_hash(), "chart_status": c.status, "source_url": c.source_url,
         "http_status": http_status, "retrieved_at_utc": retrieved_at, "at_utc": _utc(now), "run_id": run_id,
-        "parser_version": c.parser_version, **extra,
+        "parser_version": c.parser_version,
+        "record_hashes": record_hashes_cell(plan.rows) if event in ("begin", "commit") and plan.rows else None,
+        **extra,
     }
     return [_cell(values.get(h)) for h in COLLECTION_HEADERS]
 
@@ -286,19 +344,13 @@ def _append(gc, sheet_id, tab, rows, op) -> bool:
 
 
 def verify(log: Log, plan: Plan) -> tuple[bool, str]:
-    """Every expected record_id present, with exactly the expected content."""
-    by_id: dict[str, list[tuple]] = {}
-    for r in log.rows(plan.collection_id):
-        by_id.setdefault(r["record_id"], []).append(_content([r[h] for h in HISTORY_HEADERS]))
-    for expected in plan.rows:
-        found = by_id.get(expected[0], [])
-        if not found:
-            return False, f"record {expected[0]} missing"
-        if _content(expected) not in found:
-            return False, f"record {expected[0]} content differs from the chart"
-    extra = set(by_id) - {r[0] for r in plan.rows}
-    if extra:
-        return False, f"{len(extra)} unexpected record id(s) under this collection"
+    """Every expected record_id has a valid copy: exactly the expected content."""
+    check = check_records(log, plan.collection_id, {r[0]: content_hash(r) for r in plan.rows})
+    if check.missing:
+        return False, (f"{len(check.missing)} record(s) without a valid copy (partial {check.partial}, "
+                       f"mismatched {check.mismatched})")
+    if check.unexpected:
+        return False, f"{check.unexpected} unexpected record id(s) under this collection"
     return True, f"{len(plan.rows)} distinct records verified"
 
 
@@ -326,6 +378,16 @@ def execute(gc, sheet_id: str, plan: Plan, run_id: str, retrieved_at: str, now: 
                           "history_observe")
         return Result("dry_run" if dry else "unchanged", plan.collection_id, detail="already committed; retrieval recorded",
                       orphans_aborted=plan.orphans)
+
+    if plan.action == "repair":
+        _append(gc, sheet_id, HISTORY_TAB, plan.missing, "history_repair_rows")
+        ok, detail = verify(read_log(gc, sheet_id), plan)
+        _append(gc, sheet_id, COLLECTIONS_TAB,
+                [ev("observe", status_detail=(f"repaired: re-appended {len(plan.missing)} record(s) whose committed "
+                                              f"rows were partial or altered; " + detail) if ok else
+                    f"repair incomplete: {detail}")], "history_observe")
+        return Result("repaired" if ok else "unverified", plan.collection_id, rows_written=len(plan.missing),
+                      detail=detail, orphans_aborted=plan.orphans)
 
     resumed = plan.action == "resume"
     first = ev("observe", status_detail="resuming an uncommitted collection; content re-retrieved") if resumed else ev("begin")
@@ -415,31 +477,44 @@ def read_weekend(gc, sheet_id: str, weekend_start: str, log: Log | None = None) 
     # independent of physical row order and of which commit landed last.
     order = sorted(committed, key=lambda c: (latest(c), int(committed[c]["revision"] or 0)), reverse=True)
     current = order[0]
-    if len(order) > 1 and latest(order[0]) == latest(order[1]):
+    if len(order) > 1 and latest(order[0]) == latest(order[1]) and order[0] != order[1]:
         return Snapshot(weekend_start, "conflicting_versions", detail=(
             f"collections {order[0]} and {order[1]} carry different content retrieved at the same time "
             f"({latest(order[0]).isoformat()}); unusable until a later retrieval decides"))
-    rows = collection_rows(log, current)
+    hashes = parse_record_hashes(committed[current]["record_hashes"])
     expected = int(committed[current]["verified_rows"] or -1)
     obs = _observations(log, current)
     superseded = [{"collection_id": c, "revision": int(committed[c]["revision"] or 0),
                    "last_retrieved_at_utc": last_seen(c)[0]} for c in order[1:]]
-    if len(rows) != expected:
-        return Snapshot(weekend_start, "integrity_error", current, detail=f"{len(rows)} distinct rows, commit says {expected}")
+    if len(hashes) != expected:
+        return Snapshot(weekend_start, "integrity_error", current,
+                        detail=f"commit lists {len(hashes)} record hashes but {expected} verified rows")
+    check = check_records(log, current, hashes)
+    if check.missing:
+        # Fail safe: the weekend reads as unknown (never an older revision, never partial data) until a
+        # re-collection appends valid copies. Nothing is removed.
+        return Snapshot(weekend_start, "integrity_error", current, detail=(
+            f"{len(check.missing)} committed record(s) have no valid copy (partial rows {check.partial}, "
+            f"altered rows {check.mismatched}); re-collect the weekend to repair"))
+    rows = sorted(check.valid.values(), key=lambda r: int(r["position"]))
+    detail = ""
+    if check.partial or check.mismatched or check.unexpected:
+        detail = (f"ignored {check.partial} partial, {check.mismatched} altered and {check.unexpected} unexpected "
+                  "row(s); every committed record has a valid copy")
     return Snapshot(weekend_start, "available", current, int(committed[current]["revision"] or 0),
-                    collection_status(weekend_start, obs), rows, obs, superseded)
+                    collection_status(weekend_start, obs), rows, obs, superseded, detail)
 
 
 def collection_rows(log: Log, coll_id: str) -> list[dict]:
-    """Rows of one committed collection (e.g. a superseded revision), de-duplicated. [] if uncommitted."""
-    if not log.for_collection(coll_id, "commit"):
+    """Valid rows of one committed collection (e.g. a superseded revision): one per committed record,
+    content-verified. [] if uncommitted or if any committed record lacks a valid copy."""
+    commit = log.for_collection(coll_id, "commit")
+    if not commit:
         return []
-    rows, seen = [], set()
-    for r in log.rows(coll_id):
-        if r["record_id"] not in seen:
-            seen.add(r["record_id"])
-            rows.append(r)
-    return sorted(rows, key=lambda r: int(r["position"]))
+    check = check_records(log, coll_id, parse_record_hashes(commit[0]["record_hashes"]))
+    if check.missing or not check.valid:
+        return []
+    return sorted(check.valid.values(), key=lambda r: int(r["position"]))
 
 
 def film_series(gc, sheet_id: str, film_key: str, weekend_starts: list[str], log: Log | None = None) -> list[dict]:

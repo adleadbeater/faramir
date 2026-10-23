@@ -1,0 +1,41 @@
+FAILED tests/test_remediation.py::test_reviewer_reproduction_is_rejected
+FAILED tests/test_remediation.py::test_legitimate_domestic_and_worldwide_figures_pass[Alpha Film Passes Beta Story-Overseas it has taken $280M.]
+FAILED tests/test_remediation.py::test_legitimate_domestic_and_worldwide_figures_pass[Alpha Film Passes Beta Story-Beta Story's $200M international haul is still ahead.]
+FAILED tests/test_remediation.py::test_figures_attributed_to_the_wrong_axis_or_film_are_rejected[Alpha Film Passes Beta Story With $400M Domestic--figure_misattributed]
+FAILED tests/test_remediation.py::test_figures_attributed_to_the_wrong_axis_or_film_are_rejected[Alpha Film Passes Beta Story-Beta Story made $300M domestically.-figure_misattributed]
+FAILED tests/test_remediation.py::test_figures_attributed_to_the_wrong_axis_or_film_are_rejected[Alpha Film Passes Beta Story-Alpha Film has $120M worldwide.-figure_misattributed]
+FAILED tests/test_remediation.py::test_figures_attributed_to_the_wrong_axis_or_film_are_rejected[Alpha Film Passes Beta Story With $400M--figure_axis_unlabelled]
+FAILED tests/test_remediation.py::test_figures_attributed_to_the_wrong_axis_or_film_are_rejected[Alpha Film Passes Beta Story's $120M--figure_misattributed]
+FAILED tests/test_remediation.py::test_figures_attributed_to_the_wrong_axis_or_film_are_rejected[Alpha Film ($100M) Passes Beta Story--figure_misattributed]
+FAILED tests/test_remediation.py::test_figures_attributed_to_the_wrong_axis_or_film_are_rejected[Alpha Film Passes Beta Story-It is $20M ahead worldwide.-figure_misattributed]
+FAILED tests/test_remediation.py::test_worldwide_event_reads_unlabelled_figures_as_worldwide
+FAILED tests/test_remediation.py::test_milestone_threshold_is_tied_to_its_axis
+FAILED tests/test_remediation.py::test_reviewer_talent_reproduction_is_rejected
+FAILED tests/test_remediation.py::test_unsupported_or_misattributed_people_are_rejected[Christopher Nolan's Alpha Film Passes Beta Story--person_unsupported]
+FAILED tests/test_remediation.py::test_unsupported_or_misattributed_people_are_rejected[Nolan's Alpha Film Passes Beta Story--person_unsupported]
+FAILED tests/test_remediation.py::test_unsupported_or_misattributed_people_are_rejected[Ana Ruiz's Alpha Film Passes Beta Story--person_misattributed]
+FAILED tests/test_remediation.py::test_unsupported_or_misattributed_people_are_rejected[Dana Director's Beta Story Is Passed By Alpha Film--person_misattributed]
+FAILED tests/test_remediation.py::test_unsupported_or_misattributed_people_are_rejected[Alpha Film, Starring Tom Cruise, Passes Beta Story--person_unsupported]
+FAILED tests/test_remediation.py::test_unsupported_or_misattributed_people_are_rejected[Alpha Film Passes Beta Story-The Margot Robbie-led hit keeps climbing.-person_unsupported]
+FAILED tests/test_remediation.py::test_unsupported_or_misattributed_people_are_rejected[Pixar's Alpha Film Passes Beta Story--person_unsupported]
+FAILED tests/test_remediation.py::test_comparison_credits_count_only_with_verified_identity
+FAILED tests/test_remediation.py::test_binding_evidence_carries_credits
+FAILED tests/test_remediation.py::test_identical_duplicate_overrides_map_once_with_a_note
+FAILED tests/test_remediation.py::test_conflicting_duplicate_overrides_are_refused
+FAILED tests/test_remediation.py::test_malformed_overrides_are_refused[rows0-malformed tmdb_id]
+FAILED tests/test_remediation.py::test_malformed_overrides_are_refused[rows1-malformed tmdb_id]
+FAILED tests/test_remediation.py::test_malformed_overrides_are_refused[rows2-malformed tmdb_id]
+FAILED tests/test_remediation.py::test_rows_without_slug_and_bad_header_are_reported
+FAILED tests/test_remediation.py::test_conflicting_override_leaves_the_film_unresolved_without_guessing
+FAILED tests/test_remediation.py::test_malformed_state_override_cell_is_unresolved_not_ignored
+FAILED tests/test_remediation.py::test_daily_run_reports_conflicting_overrides
+FAILED tests/test_remediation.py::test_daily_run_drops_a_pick_naming_unsupported_talent
+FAILED tests/test_remediation.py::test_unconfirmed_becomes_posted_when_history_finds_it
+FAILED tests/test_remediation.py::test_unconfirmed_found_by_visible_ref_only
+FAILED tests/test_remediation.py::test_modified_gross_after_commit_is_detected_and_repaired
+FAILED tests/test_remediation.py::test_altered_row_with_a_valid_duplicate_is_ignored
+FAILED tests/test_remediation.py::test_partially_written_row_is_never_read_and_resume_rewrites_it
+FAILED tests/test_remediation.py::test_partial_row_after_commit_fails_safe_then_repairs
+FAILED tests/test_remediation.py::test_tampered_row_with_consistent_looking_values_is_still_rejected
+FAILED tests/test_remediation.py::test_commit_without_record_hashes_is_an_integrity_error
+40 failed, 23 passed in 1.48s

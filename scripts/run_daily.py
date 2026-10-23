@@ -54,30 +54,20 @@ def _suppressed_pairs(past_suggestions: list[dict], today, suppress_days: int) -
     return suppressed_pairs
 
 
-def _identity_overrides(gc, sheet_id: str) -> dict[str, int]:
+def _identity_overrides(gc, sheet_id: str):
     """Editor-owned ``identity_overrides`` tab (tn_slug, tmdb_id, note): read-only to Faramir.
-    Missing tab = no overrides. Rows without a slug or an integer tmdb_id are ignored (logged)."""
+    Missing tab = no overrides. Duplicates, conflicts and malformed rows: faramir.identity.parse_overrides."""
+    from faramir.identity import Overrides, parse_overrides
     from faramir.sheet import TabMissing, read_values
 
     try:
         values = read_values(gc, sheet_id, "identity_overrides")
     except TabMissing:
-        return {}
-    if not values:
-        return {}
-    header = [str(h).strip() for h in values[0]]
-    if "tn_slug" not in header or "tmdb_id" not in header:
-        logger.warning("identity_overrides: header %s lacks tn_slug/tmdb_id — ignored", header)
-        return {}
-    out: dict[str, int] = {}
-    for n, r in enumerate(values[1:], start=2):
-        r = list(r) + [""] * len(header)
-        slug, tid = str(r[header.index("tn_slug")]).strip(), str(r[header.index("tmdb_id")]).strip()
-        if slug and tid.isdigit():
-            out[slug] = int(tid)
-        elif slug or tid:
-            logger.warning("identity_overrides row %d ignored: tn_slug=%r tmdb_id=%r", n, slug, tid)
-    return out
+        return Overrides()
+    overrides = parse_overrides(values)
+    for problem in overrides.problems:
+        logger.warning(problem)
+    return overrides
 
 
 def _join_warnings(*warnings) -> str | None:
@@ -363,6 +353,8 @@ def _run(ctx, run_date=None):
         resolved.append((entry, ident))
     identity_mod.dedupe([i for _, i in resolved])
     runtime.note("identity", [i.report() for _, i in resolved])
+    runtime.note("identity_overrides", {"used": sorted(k for k, v in overrides.by_slug.items() if isinstance(v, int)),
+                                        "problems": overrides.problems})
     runtime.note("rerelease_engagements", long_running)
     unresolved = [i for _, i in resolved if i.status == "unresolved"]
     identity_warning = None

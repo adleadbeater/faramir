@@ -17,10 +17,18 @@ length, given one regeneration attempt by the caller).
    * the comparison named as the film doing the passing (direction reversed);
    * a genre descriptor attributed to a film that does not have that genre;
    * another film's title (from the corpus / today's payload).
-3. Every dollar figure must match a reported evidence value — active film's
-   current gross, comparison's reported gross, threshold, or the gap between
-   them — within the precision the text implies. A missing gross is never a
-   valid source.
+3. Every dollar figure must match a reported evidence value OF THE RIGHT
+   METRIC AND FILM, within the precision the text implies. The metric is the
+   axis named next to the figure ("$400M worldwide", "domestic total of
+   $120M", "$280M overseas"); an unlabelled figure is read as the bound
+   event's axis. A possessive or parenthetical title ("Beta Story's $100M",
+   "Alpha Film ($120M)") ties the figure to that film. Sources: each film's
+   reported gross on that axis, the international split (worldwide −
+   domestic), the threshold and the gap on the event axis. A missing gross is
+   never a valid source.
+3b. Named people (directors, cast) must be in the evidence for the film they
+   are attributed to ("Christopher Nolan's Alpha Film" needs Nolan in Alpha
+   Film's credits); anyone else is an unsupported claim.
 4. Headline length <= 85 characters (counted exactly; never truncated).
 5. A shortened headline must keep the original's meaning (``meaning_changes``):
    the same bound films, the same film doing the passing, the same
@@ -354,6 +362,98 @@ def genre_checks(raw: str, masked: str, pick: dict, films: dict[str, list[str]])
     return reasons
 
 
+# Capitalized words that open or fill Title Case headlines but are not people. A run of these is
+# never treated as a person's name.
+NOT_A_NAME = set("""
+a an the of in at on to for with and or but by from as now just new its it this that his her their our
+passes passed crosses crossed tops topped beats nears closing about set poised could moves overtakes edges surges
+film films movie movies sequel franchise series hit hits box office weekend weekends opening debut run total
+domestic worldwide global international overseas year years month week day days season holiday holidays
+summer fall autumn winter spring halloween thanksgiving christmas easter labor memorial independence
+record records biggest best top latest original first second third final part chapter vol volume
+billion million studio studios theater theaters theatrical release releases fans audiences critics
+why how what when where who which still again finally officially quietly already more most less
+""".split())
+PERSON_ROLE_RE = re.compile(
+    r"(?<![\w-])(?:directed by|director|filmmaker|helmer|writer-director|auteur|starring|stars|star|led by|"
+    r"headlined by|fronted by|actor|actress|from director|from filmmaker)\s+", re.I)
+_NAME_TOKEN = r"[A-Z][a-zA-Z'’.\-]*[a-zA-Z.]"
+_NAME_RE = re.compile(rf"{_NAME_TOKEN}(?:\s+(?:{_NAME_TOKEN}|de|da|del|van|von|der|le|la|di))*")
+
+
+def _people(entity: dict | None) -> list[str]:
+    if not entity:
+        return []
+    out = [d.strip() for d in str(entity.get("director") or "").split(",") if d.strip()]
+    out += [str(c).strip() for c in (entity.get("lead_cast") or []) if str(c).strip()]
+    return out
+
+
+def _same_person(name: str, person: str) -> bool:
+    n, p = name.casefold().strip().rstrip("."), person.casefold().strip()
+    return n == p or (" " not in n and p.split() and p.split()[-1] == n)
+
+
+def _trim_name(tokens: list[str]) -> list[str]:
+    """Drop headline words from both ends; what remains (1-4 tokens) is a candidate name."""
+    while tokens and tokens[0].casefold().strip(".") in NOT_A_NAME:
+        tokens = tokens[1:]
+    while tokens and tokens[-1].casefold().strip(".") in NOT_A_NAME:
+        tokens = tokens[:-1]
+    if not tokens or len(tokens) > 4 or any(t.casefold().strip(".") in NOT_A_NAME for t in tokens):
+        return []
+    return tokens
+
+
+def person_checks(raw: str, masked: str, pick: dict, films: dict[str, list[str]]) -> list[str]:
+    """Every person named as a film's director/star/talent must be in that film's evidence.
+
+    Detected: a possessive name ("Christopher Nolan's", or a one-word "Nolan's" directly before a
+    bound title), a role cue ("directed by X", "starring X") and "X-led"/"X-directed". The film is
+    the bound title right after the name, else the film the sentence is about (the active film).
+    A comparison film's credits count only when its identity is verified.
+    """
+    ev = pick["evidence"]
+    comp = ev.get("comp")
+    people = {"active": _people(ev.get("active")),
+              "comp": _people(comp) if (comp or {}).get("identity_status") == "verified" else []}
+    spans = _spans(raw, films)
+    found: list[tuple[str, str | None]] = []
+    for m in re.finditer(r"((?:" + _NAME_TOKEN + r"\s+){0,4}" + _NAME_TOKEN + r")['’]s(?![\w])", masked):
+        tokens = _trim_name(m.group(1).split())
+        if not tokens:
+            continue
+        nxt = masked[m.end():m.end() + 2]
+        before_title = nxt.strip().startswith("\u00b7")
+        if len(tokens) == 1 and not before_title:
+            continue  # a lone capitalized possessive not attached to a title is not treated as a person
+        film = next((k for a, b, k in spans if a >= m.end() and a <= m.end() + 2), None) if before_title else None
+        found.append((" ".join(tokens), film))
+    for m in PERSON_ROLE_RE.finditer(masked):
+        nm = _NAME_RE.match(masked, m.end())
+        tokens = _trim_name(nm.group(0).split()) if nm else []
+        if tokens:
+            found.append((" ".join(tokens), None))
+    for m in re.finditer(r"(" + _NAME_TOKEN + r"(?:\s+" + _NAME_TOKEN + r"){0,3})-(?:led|directed|fronted|starring|headlined)(?![\w])", masked):
+        tokens = _trim_name(m.group(1).split())
+        if tokens:
+            found.append((" ".join(tokens), None))
+    reasons = []
+    for name, film in found:
+        target = film or "active"
+        if any(_same_person(name, p) for p in people.get(target, [])):
+            continue
+        if not film and any(_same_person(name, p) for p in people.get("comp", [])):
+            continue  # a role cue without a title: either bound film's credits support it
+        other = "comp" if target == "active" else "active"
+        if any(_same_person(name, p) for p in people.get(other, [])):
+            reasons.append(f"person_misattributed: {name!r} is credited on the {other} film, not the {target} film")
+        else:
+            reasons.append(f"person_unsupported: {name!r} is not in the evidence for the {target} film's "
+                           "director or cast")
+    return reasons
+
+
 def lexical_checks(pick: dict, other_titles: list[str]) -> list[str]:
     ev = pick["evidence"]
     comp = ev.get("comp") or {}
@@ -370,6 +470,7 @@ def lexical_checks(pick: dict, other_titles: list[str]) -> list[str]:
         reasons.append("tense_mismatch: completed wording for an event that has not happened yet")
     reasons += direction_checks(raw, films)
     reasons += genre_checks(raw, text, pick, films)
+    reasons += person_checks(raw, text, pick, films)
     own_lower = [o.lower() for o in own if o]
     for t in other_titles:
         if not t or any(t.lower() in o for o in own_lower):
@@ -380,21 +481,121 @@ def lexical_checks(pick: dict, other_titles: list[str]) -> list[str]:
     return reasons
 
 
+AXIS_LABELS = [
+    ("international", r"international(?:ly)?|overseas|abroad|foreign"),
+    ("worldwide", r"worldwide|world-wide|global(?:ly)?|around the world|across the globe"),
+    ("domestic", r"domestic(?:ally)?|stateside|north american?|in north america|(?:in the )?u\.?s\.?(?: and canada)?"),
+]
+_AXIS_RE = re.compile(r"(?<![\w-])(" + "|".join(p for _, p in AXIS_LABELS) + r")(?![\w-])", re.I)
+_AXIS_AFTER_WORDS = 4   # "$400M worldwide", "$400 million at the domestic box office"
+_AXIS_BEFORE_WORDS = 5  # "domestic total of $120M", "a worldwide haul of $400M"
+
+
+def _axis_of(word: str) -> str:
+    for axis, pattern in AXIS_LABELS:
+        if re.fullmatch(pattern, word, re.I):
+            return axis
+    return ""
+
+
+def _figure_axis(text: str, start: int, end: int, s0: int, s1: int) -> str | None:
+    """The axis named next to a figure (after it first, then before it), within its own clause."""
+    after = text[end:s1]
+    after = re.split(r"\$|[;:]", after)[0]
+    words = after.split()[:_AXIS_AFTER_WORDS]
+    m = _AXIS_RE.search(" ".join(words))
+    if m:
+        return _axis_of(m.group(1))
+    before = re.split(r"\$|[;:]", text[s0:start])[-1]
+    words = before.split()[-_AXIS_BEFORE_WORDS:]
+    hits = list(_AXIS_RE.finditer(" ".join(words)))
+    return _axis_of(hits[-1].group(1)) if hits else None
+
+
+def _figure_film(raw: str, start: int, s0: int, spans) -> str | None:
+    """A film the figure is explicitly tied to: "Title's [words] $X" or "Title ($X"."""
+    before = [(a, b, k) for a, b, k in spans if s0 <= a and b <= start]
+    if not before:
+        return None
+    a, b, k = before[-1]
+    between = raw[b:start]
+    if re.fullmatch(r"['’]s\s+(?:[\w-]+\s+){0,3}", between) or re.fullmatch(r"\s*\(\s*", between):
+        return k
+    return None
+
+
+def _film_values(ev: dict) -> dict[str, dict[str, float]]:
+    """{film: {axis: value}} from reported evidence only (international = worldwide − domestic)."""
+    out = {}
+    for key, getter in (("active", lambda a: _active(ev, a)), ("comp", lambda a: _reported(ev.get("comp"), a))):
+        if key == "comp" and not ev.get("comp"):
+            continue
+        vals = {a: getter(a) for a in ("domestic", "worldwide")}
+        if vals["domestic"] and vals["worldwide"] and vals["worldwide"] >= vals["domestic"]:
+            vals["international"] = vals["worldwide"] - vals["domestic"]
+        out[key] = {a: float(v) for a, v in vals.items() if v}
+    return out
+
+
 def figure_checks(pick: dict) -> list[str]:
     ev = pick["evidence"]
     comp = ev.get("comp")
+    event = ev.get("event") or {}
+    event_axis = event.get("axis")
     reasons = []
     if comp:
         dom, ww = _reported(comp, "domestic"), _reported(comp, "worldwide")
         if dom and ww and ww < dom:
             reasons.append("comp_partial_run: comparison worldwide < domestic")
-        axis = (ev.get("event") or {}).get("axis")
-        if _reported(comp, axis) is None:
-            reasons.append(f"comp_metric_unavailable: comparison {axis} gross is not reported")
-    known = evidence_values(ev)
-    for value, tol, txt in parse_money(f"{pick.get('headline', '')} {pick.get('angle', '')}"):
-        if not any(abs(value - k) <= tol + 1e-6 for k in known):
-            reasons.append(f"unverified_figure: {txt.strip()} matches no reported evidence value")
+        if _reported(comp, event_axis) is None:
+            reasons.append(f"comp_metric_unavailable: comparison {event_axis} gross is not reported")
+    films = _films(pick)
+    values = _film_values(ev)
+    names = {"active": (ev.get("active") or {}).get("title") or pick.get("active_title") or "active film",
+             "comp": (comp or {}).get("title") or pick.get("comp_title") or "comparison film"}
+    # Every evidence value, keyed by (source, axis): each film's gross per axis, the gap between the films
+    # per axis, and the event's threshold and gap to it.
+    known: dict[tuple[str, str], float] = {}
+    for k, by_axis in values.items():
+        for a, v in by_axis.items():
+            known[(k, a)] = v
+    for a in ("domestic", "worldwide", "international"):
+        if ("active", a) in known and ("comp", a) in known:
+            known[("gap", a)] = abs(known[("active", a)] - known[("comp", a)])
+    if event.get("threshold") and event_axis:
+        known[("threshold", event_axis)] = float(event["threshold"])
+        current = _active(ev, event_axis)
+        if current and not comp:
+            known[("gap", event_axis)] = abs(float(event["threshold"]) - float(current))
+    label = {"active": names["active"], "comp": names["comp"], "gap": "the gap", "threshold": "the threshold"}
+    for field_name in ("headline", "angle"):
+        raw = pick.get(field_name) or ""
+        spans = _spans(raw, films)
+        for s0, s1 in _sentences(raw):
+            for m in MONEY_RE.finditer(raw, s0, s1):
+                (value, tol, txt), = parse_money(m.group(0))
+                labelled = _figure_axis(raw, m.start(), m.end(), s0, s1)
+                axis = labelled or event_axis
+                film = _figure_film(raw, m.start(), s0, spans)
+                allowed = {key: v for key, v in known.items()
+                           if key[1] == axis and (key[0] == film if film else True)}
+                if any(abs(value - v) <= tol + 1e-6 for v in allowed.values()):
+                    continue
+                hits = [key for key, v in known.items() if abs(value - v) <= tol + 1e-6]
+                elsewhere = [f"{label[k]} {a}" for k, a in hits]
+                where = f" ({txt.strip()} is {', '.join(elsewhere)})" if elsewhere else ""
+                scope = f"{names[film]}'s " if film else ""
+                if film and any(k in ("active", "comp") and a == axis and k != film for k, a in hits):
+                    reasons.append(f"figure_misattributed: {txt.strip()} is attributed to {names[film]} but is "
+                                   f"{', '.join(elsewhere)}")
+                elif elsewhere and not labelled:
+                    reasons.append(f"figure_axis_unlabelled: {txt.strip()} read as {scope}{axis} (the event axis) "
+                                   f"but matches no {axis} evidence{where}; label its metric")
+                elif elsewhere:
+                    reasons.append(f"figure_misattributed: {txt.strip()} labelled {scope}{axis} matches no "
+                                   f"{scope}{axis} evidence{where}")
+                else:
+                    reasons.append(f"unverified_figure: {txt.strip()} matches no reported evidence value")
     return reasons
 
 
