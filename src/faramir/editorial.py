@@ -80,7 +80,8 @@ def capture(rows: list[dict], today: date) -> list[dict]:
 
 # ── Phase 3: assignment and published-article matching ──────────────────
 
-ASSIGNEE_RE = re.compile(r"\bassign(?:ed|ing)?\s+(?:it\s+|this\s+)?to\s+@?([A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+)?)", re.I)
+# A Slack handle is one token; a written name is one or two capitalized words ("to Dana Lee for").
+ASSIGNEE_RE = re.compile(r"(?i:\bassign(?:ed|ing)?\s+(?:it\s+|this\s+)?to)\s+(?:@([\w.'-]+)|([A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+)?))")
 MATCH_WINDOW_DAYS = 7
 MATCH_THRESHOLD = 0.5
 AMBIGUOUS_MARGIN = 0.05
@@ -89,7 +90,7 @@ _WORD = re.compile(r"[a-z0-9$]+")
 
 def assignee(text: str) -> str | None:
     m = ASSIGNEE_RE.search(text or "")
-    return m.group(1).strip() if m else None
+    return (m.group(1) or m.group(2)).strip() if m else None
 
 
 def _norm(s: str) -> str:

@@ -312,3 +312,9 @@ def test_event_pick_with_an_invented_figure_is_dropped():
     assert any(r.startswith("unverified_figure") for r in validate_pick(pick, []).reasons)
     pick["headline"] = "Beta Story Takes No. 1 With $18M"
     assert validate_pick(pick, []).ok
+
+
+def test_a_single_outcome_has_no_interval_rather_than_a_zero_width_one():
+    est = estimate([{"strategy": "overtake", "sessions": 7000}], "strategy")
+    assert est["__global__"].interval is None and est["overtake"].interval is None
+    assert est["overtake"].is_experimental

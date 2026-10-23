@@ -184,6 +184,8 @@ from tests.fixtures import cerebro_synth as SYN  # noqa: E402
 def test_assignee_from_thread():
     assert assignee("Assigned to Dana Smith, due 3pm") == "Dana Smith"
     assert assignee("assigning it to @Rob") == "Rob"
+    assert assignee("assigned to @dana for tomorrow") == "dana"
+    assert assignee("assigned to Dana for tomorrow") == "Dana"
     assert assignee("nice one") is None
 
 

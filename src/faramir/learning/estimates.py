@@ -28,15 +28,22 @@ class Estimate:
         return dict(self.__dict__)
 
 
-def _shrink(values: list[float], parent: float, parent_sd: float, k: float) -> tuple[float, float]:
+def _shrink(values: list[float], parent: float, parent_sd: float, k: float) -> tuple[float, float | None]:
     n = len(values)
     w = n / (n + k)
     mean = statistics.fmean(values) if values else parent
     est = w * mean + (1 - w) * parent
     sd = statistics.pstdev(values) if n > 1 else 0.0
     sd = sd or parent_sd  # identical values say nothing about spread: use the parent level's
+    if not sd and n < 2:
+        return est, None  # one value and no parent spread: no honest interval
     se = sd / math.sqrt(n + k)
     return est, se
+
+
+def _interval(center: float, se: float | None) -> tuple[float, float] | None:
+    """80% interval; None when the spread is unknown (a single value with nothing to borrow from)."""
+    return None if se is None else (round(center - 1.28 * se, 1), round(center + 1.28 * se, 1))
 
 
 def estimate(rows: list[dict], key: str, cohort_key: str | None = None, k: float = 10, min_n: int = 8,
@@ -48,8 +55,8 @@ def estimate(rows: list[dict], key: str, cohort_key: str | None = None, k: float
     allv = [float(r[metric]) for r in vals]
     g_mean, g_sd = statistics.fmean(allv), (statistics.pstdev(allv) if len(allv) > 1 else 0.0)
     out = {"__global__": Estimate("global", len(allv), round(g_mean, 1),
-                                  (round(g_mean - 1.28 * g_sd / math.sqrt(len(allv)), 1),
-                                   round(g_mean + 1.28 * g_sd / math.sqrt(len(allv)), 1)), None, len(allv) < min_n)}
+                                  _interval(g_mean, g_sd / math.sqrt(len(allv)) if len(allv) > 1 else None),
+                                  None, len(allv) < min_n)}
     groups: dict[str, list[dict]] = {}
     for r in vals:
         groups.setdefault(str(r.get(key)), []).append(r)
@@ -58,7 +65,7 @@ def estimate(rows: list[dict], key: str, cohort_key: str | None = None, k: float
         est, se = _shrink(v, g_mean, g_sd, k)
         exp = len(v) < min_n
         out[g] = Estimate(f"{key}={g}", len(v), round(g_mean if exp else est, 1),
-                          (round(est - 1.28 * se, 1), round(est + 1.28 * se, 1)), "global" if exp else None, exp)
+                          _interval(est, se), "global" if exp else None, exp)
         if cohort_key:
             sub: dict[str, list[float]] = {}
             for r in members:
@@ -67,6 +74,6 @@ def estimate(rows: list[dict], key: str, cohort_key: str | None = None, k: float
                 cest, cse = _shrink(cv, est, statistics.pstdev(v) if len(v) > 1 else g_sd, k)
                 cexp = len(cv) < min_n
                 out[f"{g}|{c}"] = Estimate(f"{key}={g}|{cohort_key}={c}", len(cv), round(est if cexp else cest, 1),
-                                           (round(cest - 1.28 * cse, 1), round(cest + 1.28 * cse, 1)),
+                                           _interval(cest, cse),
                                            key if cexp else None, cexp)
     return out
