@@ -1,5 +1,5 @@
 {
- "version": "2026-10-23.p3",
+ "version": "2026-10-23.p5",
  "statuses": {
   "live": "runs on data production already collects",
   "history_required": "needs committed weekend history (collection off until the source-permission decision, PR-16)",
@@ -61,43 +61,48 @@
   "streak": {
    "number": 3,
    "phase": "5",
-   "enabled": false,
+   "enabled": true,
    "data_status": "history_required",
    "sources": [
     "tn_weekend_history"
-   ]
+   ],
+   "note": "weekend history; tiers No.1\u00d73, top3\u00d74, top5\u00d76 [CAL]"
   },
   "legs": {
    "number": 7,
    "phase": "5",
-   "enabled": false,
+   "enabled": true,
    "data_status": "history_required",
    "sources": [
     "tn_weekend_history"
-   ]
+   ],
+   "note": "weekend history; needs a cohort of \u226520 films per genre\u00d7band\u00d7week, so it stays silent until history accrues"
   },
   "exit": {
    "number": 6,
    "phase": "5",
-   "enabled": false,
+   "enabled": true,
    "data_status": "history_required",
    "sources": [
     "tn_weekend_history"
-   ]
+   ],
+   "note": "weekend history; PVOD never claimed"
   },
   "premium_run": {
    "number": 9,
    "phase": "5",
    "enabled": false,
    "data_status": "blocked_no_source",
-   "sources": []
+   "sources": [],
+   "note": "no verified premium-format source; detector refuses to run"
   },
   "studio_battle": {
    "number": 10,
    "phase": "5",
    "enabled": false,
    "data_status": "blocked_no_source",
-   "sources": []
+   "sources": [],
+   "note": "no distributor year-to-date source; detector tested on synthetic tables"
   },
   "global_split": {
    "number": 11,
@@ -107,27 +112,30 @@
    "sources": [
     "bom_title",
     "corpus_v2"
-   ]
+   ],
+   "note": "international rollout dates have no source; events would be unverifiable"
   },
   "star_record": {
    "number": 12,
    "phase": "5",
    "enabled": false,
-   "data_status": "synthetic_only",
+   "data_status": "live",
    "sources": [
     "corpus_v2",
     "tmdb"
-   ]
+   ],
+   "note": "corpus + TMDB credits exist; disabled until editors approve career-record wording (SR-1)"
   },
   "dark_horse": {
    "number": 13,
    "phase": "5",
-   "enabled": false,
+   "enabled": true,
    "data_status": "history_required",
    "sources": [
     "tn_weekend_history",
     "tmdb"
-   ]
+   ],
+   "note": "weekend history + TMDB collection; budgets unused (no verified source); marketing never claimed"
   }
  },
  "discovery": {

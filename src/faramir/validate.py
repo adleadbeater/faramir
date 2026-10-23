@@ -57,7 +57,8 @@ SUPERLATIVE_RE = re.compile(
 # matched at the word's start). Faramir 2.0 strategies will need real rankings/records/firsts; those come
 # with ranked evidence, not by loosening these rules (docs/v2/STRATEGY_REQUIREMENTS.md, SR-1).
 CONTEXTUAL = [
-    (rf"(?:{ORDINAL})", rf"(?:{ORDINAL})[\s-]+(?:{TIME_UNIT})(?![\w-])|first\s+(?:look|trailer|reviews?|reactions?)\b"),
+    (rf"(?:{ORDINAL})", rf"(?:{ORDINAL})[\s-]+(?:(?:straight|consecutive)\s+)?(?:{TIME_UNIT})(?![\w-])"
+                        r"|first\s+(?:look|trailer|reviews?|reactions?)\b"),
     (r"at first", r"at first"),
     (r"only", rf"only\s+(?:\$|{NUMBER_WORD}\s+(?:more\s+)?{TIME_UNIT}\b|slightly\b|just\b|barely\b|a fraction\b)"),
     (r"ever", r"ever(?:\s+since\b|-\w)"),
@@ -299,9 +300,21 @@ def chart_rank(pick: dict) -> int | None:
     return int(r) if isinstance(r, (int, float)) or (isinstance(r, str) and r.isdigit()) else None
 
 
-def _superlatives(text: str, comp: dict, rank: int | None = None) -> list[str]:
+CAREER_RE = re.compile(r"\bcareer\b", re.I)
+
+
+def career_record(pick: dict) -> bool:
+    """A Star Record event backs career-record wording (SR-1): 'career-best', 'biggest … of her career'."""
+    se = (pick.get("evidence") or {}).get("strategy_event") or {}
+    return se.get("strategy") == "star_record"
+
+
+def _superlatives(text: str, comp: dict, rank: int | None = None, career: bool = False) -> list[str]:
     for m in SUPERLATIVE_RE.finditer(text):
         word = m.group(1)
+        if career and word.lower() in ("best", "biggest", "highest-grossing", "highest", "record") and \
+                CAREER_RE.search(text[max(0, m.start() - 60):m.end() + 60]):
+            continue  # evidence-backed career record
         if word.lower() == "best" and re.match(r"best\s+picture", text[m.start():], re.I) and comp.get("is_best_picture"):
             continue
         rm = RANK_RE.fullmatch(word.strip())
@@ -503,7 +516,7 @@ def lexical_checks(pick: dict, other_titles: list[str]) -> list[str]:
     own = [v for vs in films.values() for v in vs]
     raw = f"{pick.get('headline', '')}\n{pick.get('angle', '')}"
     text = _mask(raw, own)
-    reasons = _superlatives(text, comp, chart_rank(pick))
+    reasons = _superlatives(text, comp, chart_rank(pick), career_record(pick))
     tense = _tense(text)
     if _completed_event(ev):
         if tense == "anticipated":

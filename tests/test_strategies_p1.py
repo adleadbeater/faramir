@@ -325,7 +325,8 @@ def test_registry_accounts_for_all_thirteen_strategies_and_discovery():
     assert sorted(v["number"] for v in reg["strategies"].values()) == list(range(1, 14))
     assert "discovery" in reg and all(v["data_status"] in reg["statuses"] for v in reg["strategies"].values())
     live = {k for k, v in reg["strategies"].items() if v["data_status"] == "live"}
-    assert live == {"overtake", "chase", "countdown"}
+    assert live == {"overtake", "chase", "countdown", "star_record"}
+    assert {k for k in live if reg["strategies"][k]["enabled"]} == {"overtake", "chase", "countdown"}
     assert not reg["strategies"]["premium_run"]["enabled"] and reg["strategies"]["premium_run"]["data_status"] == "blocked_no_source"
 
 

@@ -652,7 +652,8 @@ def _run(ctx, run_date=None):
     ledger = default_ledger(ctx.out_dir, dry_run=ctx.dry_run)
     ledger.append("editorial", editorial.capture([r.raw for r in suggestions_table.rows], today), month=str(today)[:7])
     engine = strategy_engine.run_daily(enriched_active, active_films_payload, corpus, bom_date_used.isoformat(),
-                                       corpus_load.meta.get("gross_as_of"), suppressed_pairs, ledger)
+                                       corpus_load.meta.get("gross_as_of"), suppressed_pairs, ledger,
+                                       tracked=list(new_state.values()))
     active_films_payload = engine.payload_films
     runtime.note("strategy_engine", engine.summary())
 

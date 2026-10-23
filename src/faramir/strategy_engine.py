@@ -19,7 +19,7 @@ from faramir.corpus import build_index
 from faramir.dedup import dedup
 from faramir.events.ledger import Ledger
 from faramir.events.schema import film_key, target_key
-from faramir.strategies import chase, countdown, enabled, overtake, registry
+from faramir.strategies import chase, countdown, enabled, global_split, overtake, registry, star_record
 from faramir.strategies.common import DetectorResult, film_ref
 
 
@@ -66,7 +66,8 @@ def _prior_gaps(deliveries: list[dict], fkey: str) -> dict:
 
 
 def run_daily(films: list[dict], payload_films: list[dict], corpus: list[dict], data_date: str,
-              gross_as_of: str | None, suppressed_pairs: set, ledger: Ledger, reg: dict | None = None) -> EngineResult:
+              gross_as_of: str | None, suppressed_pairs: set, ledger: Ledger, reg: dict | None = None,
+              tracked: list[dict] | None = None) -> EngineResult:
     reg = reg or registry()
     index = build_index(corpus)
     by_id = {f.get("tmdb_id"): f for f in films}
@@ -95,6 +96,10 @@ def run_daily(films: list[dict], payload_films: list[dict], corpus: list[dict], 
             sup_axes = {a for (fid, comp, a) in suppressed_pairs if fid == film.get("tmdb_id") and comp == 0}
             found.extend(countdown.detect(film, data_date, prior_gaps=_prior_gaps(deliveries, film_key(film_ref(film))),
                                           observations=observations, suppressed_axes=sup_axes))
+        if enabled("star_record", reg):
+            found.extend(star_record.detect(film, corpus, tracked or films, data_date, gross_as_of))
+        if enabled("global_split", reg):
+            found.extend(global_split.detect(film, corpus, data_date, gross_as_of, rollout_complete=None))
 
     clusters = classify(found.events)
     qualified = [c for c in clusters if c.disposition == "qualified"]

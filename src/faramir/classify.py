@@ -19,6 +19,36 @@ from faramir.events.schema import DELIVERABLE, STATUS_RANK, STRATEGIES, Event
 
 TARGET_BAND = 0.02
 OVERLAP_RULES: list = []  # callables(events) -> (ordered events, {event_id: reason_code}) for phase-specific rules
+# Plan §3 rules 3 and 4: these strategies, on the same film and weekend, are one story; precedence
+# decides primary (rule 3: Hold if there was a challenger, else Streak, Legs secondary; rule 4:
+# Takeover beats Dark Horse, which becomes secondary).
+MERGE_RULES = [
+    {"strategies": ("hold", "streak", "legs"), "code": "overlap_rule_3"},
+    {"strategies": ("takeover", "dark_horse"), "code": "overlap_rule_4"},
+]
+
+
+def _merged_key(e: Event, events: list[Event]) -> tuple:
+    from faramir.events.schema import film_key
+
+    for i, rule in enumerate(MERGE_RULES):
+        if e.strategy in rule["strategies"]:
+            return (film_key(e.film), e.period, "weekend", f"merge:{i}")
+    # Rule 5: Star Record beats Overtake when the film passed is the talent's own previous best.
+    if e.strategy == "overtake" and e.target.get("type") == "comp":
+        for s in events:
+            if (s.strategy == "star_record" and s.period == e.period and s.axis == e.axis
+                    and film_key(s.film) == film_key(e.film)
+                    and s.evidence.get("previous_best_tmdb") == e.target.get("tmdb_id")):
+                return s.cluster_key
+    return e.cluster_key
+
+
+def _precedence(e: Event) -> int:
+    for rule in MERGE_RULES:
+        if e.strategy in rule["strategies"]:
+            return rule["strategies"].index(e.strategy)
+    return 0 if e.strategy == "star_record" else 1 if e.strategy == "overtake" else 0
 
 
 @dataclass
@@ -72,14 +102,21 @@ def _order(events: list[Event]) -> tuple[list[Event], dict[str, str]]:
     for rule in OVERLAP_RULES:
         events, more = rule(events)
         reasons.update(more)
-    ranked = sorted(events, key=lambda e: (STATUS_RANK[e.status], -e.strength, STRATEGIES.index(e.strategy)))
+    ranked = sorted(events, key=lambda e: (STATUS_RANK[e.status], _precedence(e), -e.strength, STRATEGIES.index(e.strategy)))
+    strategies = {e.strategy for e in events}
+    for e in ranked[1:]:
+        if ranked[0].strategy == "star_record" and e.strategy == "overtake":
+            reasons.setdefault(e.event_id, "star_record_beats_overtake")
+        for rule in MERGE_RULES:
+            if e.strategy in rule["strategies"] and ranked[0].strategy in rule["strategies"] and len(strategies) > 1:
+                reasons.setdefault(e.event_id, f"{rule['code']}:{ranked[0].strategy}_over_{e.strategy}")
     return ranked, reasons
 
 
 def classify(events: list[Event]) -> list[Cluster]:
     groups: dict[tuple, list[Event]] = {}
     for e in events:
-        groups.setdefault(e.cluster_key, []).append(e)
+        groups.setdefault(_merged_key(e, events), []).append(e)
     clusters = []
     for members in _merge_bands(groups):
         ranked, rule_reasons = _order(members)
@@ -96,8 +133,9 @@ def classify(events: list[Event]) -> list[Cluster]:
                 code = "chase_countdown_same_band_lower_strength"
             else:
                 code = "lower_strength"
+            exclusive = code.startswith("overlap_rule_3") and e.strategy != "legs"   # Hold xor Streak; Legs may be secondary
             if cluster.secondary is None and e.strategy != primary.strategy and e.status in DELIVERABLE \
-                    and code not in ("completed_beats_anticipated",):
+                    and code not in ("completed_beats_anticipated", "star_record_beats_overtake") and not exclusive:
                 cluster.secondary = e
                 continue
             cluster.rejected_alternatives.append({"event_id": e.event_id, "strategy": e.strategy, "reason_code": code})

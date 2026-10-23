@@ -22,10 +22,10 @@ def row(rank, prev, title, gross, theaters, days, total=None):
 
 # Five synthetic weekends; expectations for the last four were worked out by hand (see table below).
 WEEKENDS = {
-    FRIDAYS[0]: [row("1", "(new)", "Alpha", 40_000_000, 4000, 3), row("2", "(1)", "Bravo", 20_000_000, 3500, 10),
+    FRIDAYS[0]: [row("1", "(new)", "Alpha", 40_000_000, 4000, 3), row("2", "(1)", "Bravo", 20_000_000, 3500, 10, 30_000_000),
                  row("3", "(2)", "Old One", 5_000_000, 2000, 24)],
     FRIDAYS[1]: [row("1", "(1)", "Alpha", 25_000_000, 4000, 10), row("2", "(new)", "Charlie", 18_000_000, 3600, 3),   # Hold
-                 row("3", "(2)", "Bravo", 9_000_000, 3200, 17)],
+                 row("3", "(2)", "Bravo", 9_000_000, 3200, 17, 39_000_000)],
     FRIDAYS[2]: [row("1", "(new)", "Delta", 30_000_000, 3900, 3), row("2", "(1)", "Alpha", 15_000_000, 3800, 17),     # Takeover debut
                  row("3", "(2)", "Charlie", 8_000_000, 3400, 10)],
     FRIDAYS[3]: [row("1", "(2)", "Alpha", 12_000_000, 3500, 24), row("2", "(1)", "Delta", 11_000_000, 3900, 10),      # Takeover climb
@@ -36,7 +36,7 @@ WEEKENDS = {
 EXPECTED = {   # weekend -> sorted (strategy, film, subtype, status)
     FRIDAYS[1]: [("hold", "Alpha", None, "confirmed")],
     FRIDAYS[2]: [("takeover", "Delta", "debut", "confirmed")],
-    FRIDAYS[3]: [("takeover", "Alpha", "climb", "confirmed")],
+    FRIDAYS[3]: [("streak", "Alpha", "top3", "confirmed"), ("takeover", "Alpha", "climb", "confirmed")],  # top 3 ×4 (Phase 5)
     FRIDAYS[4]: [("hold", "Alpha", None, "provisional")],
 }
 
@@ -67,7 +67,7 @@ def test_four_hand_checked_weekends(book, fri):
     got = sorted((e.strategy, e.film["title"], e.subtype, e.status) for e in result.events)
     assert result.status == "ok" and got == EXPECTED[fri]
     for e in result.events:
-        assert [s.name for s in e.sources] == ["tn_weekend_history", "tn_weekend_history"] and e.reason
+        assert e.sources and {s.name for s in e.sources} == {"tn_weekend_history"} and e.reason
 
 
 def test_takeover_evidence(book):
