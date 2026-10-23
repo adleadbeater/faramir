@@ -381,9 +381,7 @@ def test_legacy_state_tab_is_refused_by_preflight_then_upgraded_by_migration(run
     assert parse_meta(book.worksheet(META_TAB).data)["state"]["status"] == "ok"
 
     for p in list((run_env["tmp"] / "out").iterdir()):
-        for f in p.iterdir():
-            f.unlink()
-        p.rmdir()
+        __import__("shutil").rmtree(p)
     assert main(run_env) == 0  # the migrated workbook passes preflight
 
 

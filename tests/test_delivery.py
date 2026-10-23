@@ -415,9 +415,7 @@ from tests.test_run_daily_runtime import artifacts, main  # noqa: E402
 
 def _clear_out(env):
     for p in list((env["tmp"] / "out").iterdir()):
-        for f in p.iterdir():
-            f.unlink()
-        p.rmdir()
+        __import__("shutil").rmtree(p)
 
 
 def test_rerun_with_identical_pick_reposts_nothing_and_no_second_header(env):

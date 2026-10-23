@@ -312,9 +312,7 @@ def test_legacy_identity_stays_legacy_across_runs(env):
         assert beta["identity_confidence"] == "legacy" and b["identity_class"] == "legacy"
         assert b["method"] == "state_legacy_title_year"
         for p in list((env["tmp"] / "out").iterdir()):
-            for f in p.iterdir():
-                f.unlink()
-            p.rmdir()
+            __import__("shutil").rmtree(p)
 
 
 def test_rerelease_identity_keeps_engagement_evidence(env):

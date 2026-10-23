@@ -392,9 +392,16 @@ def _run(ctx, run_date=None):
                     bom_title, gross_today, prior_dom,
                 )
                 gross_today = prior_dom
-            row["domestic_yesterday"] = prior_dom
+            # A same-day rerun keeps the previous DAY's figure as "yesterday" (rolling it to the
+            # previous run's value would erase every crossing and the pace on a recovery rerun).
+            rerun_today = str(row.get("last_seen")) == str(today)
+            row["_rerun_today"] = rerun_today  # not a state column; read by step 5
+            if not rerun_today:
+                row["domestic_yesterday"] = prior_dom
+                row["dom_stale_days"] = prior_stale + 1 if gross_today == prior_dom else 0
+            elif gross_today != prior_dom:
+                row["dom_stale_days"] = 0
             row["domestic_today"] = gross_today
-            row["dom_stale_days"] = prior_stale + 1 if gross_today == prior_dom else 0
             row["days_in_release"] = days
             row["last_seen"] = str(today)
             row["status"] = "active"
@@ -470,10 +477,13 @@ def _run(ctx, run_date=None):
                     row.get("tmdb_id"), new_ww, prior_ww,
                 )
                 new_ww = prior_ww
-            row["worldwide_yesterday"] = prior_ww
+            if not row.get("_rerun_today"):
+                row["worldwide_yesterday"] = prior_ww
+                row["ww_stale_days"] = prior_ww_stale + 1 if new_ww == prior_ww else 0
+            elif new_ww != prior_ww:
+                row["ww_stale_days"] = 0
             row["worldwide_today"] = new_ww
-            row["ww_stale_days"] = prior_ww_stale + 1 if new_ww == prior_ww else 0
-        else:
+        elif not row.get("_rerun_today"):
             row["worldwide_yesterday"] = prior_ww
             row["ww_stale_days"] = prior_ww_stale + 1
             # Leave worldwide_today unchanged from state
@@ -616,6 +626,21 @@ def _run(ctx, run_date=None):
             "candidates": all_film_candidates,
         })
 
+    # Step 10b: Strategy engine (Phase 1). Deterministic detectors (Overtake, Chase,
+    # Countdown) turn candidates into evidence-backed events; the classifier keeps one
+    # primary (and at most one secondary) per cluster; dedup drops what was already
+    # delivered. Claude then chooses only among these. Every candidate and event gets a
+    # ledger row with its disposition.
+    from faramir import editorial, strategy_engine
+    from faramir.events.ledger import default_ledger
+
+    ledger = default_ledger(ctx.out_dir, dry_run=ctx.dry_run)
+    ledger.append("editorial", editorial.capture([r.raw for r in suggestions_table.rows], today), month=str(today)[:7])
+    engine = strategy_engine.run_daily(enriched_active, active_films_payload, corpus, bom_date_used.isoformat(),
+                                       corpus_load.meta.get("gross_as_of"), suppressed_pairs, ledger)
+    active_films_payload = engine.payload_films
+    runtime.note("strategy_engine", engine.summary())
+
     # Step 11: Claude selection
     dow = today.weekday()
     picks_target = config.PICKS_TARGET.get(dow, 4)
@@ -673,6 +698,17 @@ def _run(ctx, run_date=None):
     runtime.note("validation", validation_log)
     runtime.note("picks", {"returned": len(picks), "after_validation": len(validated_picks)})
     picks = validated_picks
+    # Each pick carries its strategy event: id, strategy and the evidence-only rationale line.
+    for pick in picks:
+        cluster = engine.by_candidate_id.get(pick.get("candidate_id"))
+        if cluster is not None:
+            from faramir import rationale as rationale_mod
+
+            pick["rationale"] = rationale_mod.line(cluster.primary, cluster.secondary)
+            pick["evidence"] = {**(pick.get("evidence") or {}), "strategy_event": {
+                "event_id": cluster.primary.event_id, "strategy": cluster.primary.strategy,
+                "secondary": cluster.secondary.strategy if cluster.secondary else None,
+                "rationale": pick["rationale"], "reason_codes": cluster.primary.reason_codes}}
     corpus_by_tmdb = {f.get("tmdb_id"): f for f in corpus}
 
     # Step 12: Log -> post -> confirm. Every pick gets an immutable suggestion_id
@@ -780,6 +816,15 @@ def _run(ctx, run_date=None):
         outcomes = deliver(gc, sheet_id, slack_target, deliveries, ctx.run_id)
     elif deliveries:
         logger.warning("No SLACK_BOT_TOKEN/SLACK_CHANNEL_ID — %d pick(s) logged as planned, not posted", len(deliveries))
+    # Delivered events feed cross-day dedup (and later, learning).
+    posted = {o.suggestion_id for o in outcomes if o.state == "posted"}
+    delivered_clusters, sid_by_event = [], {}
+    for item in new_items:
+        cluster = engine.by_candidate_id.get(item.pick.get("candidate_id"))
+        if cluster is not None and item.suggestion_id in posted:
+            delivered_clusters.append(cluster)
+            sid_by_event[cluster.primary.event_id] = item.suggestion_id
+    strategy_engine.record_deliveries(ledger, delivered_clusters, bom_date_used.isoformat(), sid_by_event)
     runtime.note("delivery", {
         "new": [i.suggestion_id for i in new_items], "replayed": [i.suggestion_id for i in replay_items],
         "skipped_already_logged": skipped_existing, "over_daily_cap": over_cap,

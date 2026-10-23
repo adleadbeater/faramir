@@ -220,6 +220,11 @@ def _slim_payload(payload: dict) -> dict:
                     "is_classic": comp.get("is_classic"),
                 } if comp else None,
                 "signals": c.get("signals"),
+                # Phase 1: the classified strategy event this candidate represents.
+                "event_id": c.get("event_id"),
+                "strategy": c.get("strategy"),
+                "secondary_strategy": c.get("secondary_strategy"),
+                "rationale": c.get("rationale"),
             })
         slim_film = {k: v for k, v in film.items() if k != "candidates"}
         slim_film["candidates"] = slim_candidates

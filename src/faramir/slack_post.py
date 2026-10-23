@@ -275,8 +275,11 @@ def post_pick(
             "type": "section",
             "text": {"type": "mrkdwn", "text": f"_{angle}_"},
         },
-        {"type": "divider"},
     ]
+    if pick.get("rationale"):
+        # Phase 1: one evidence-only line saying why this is a story (built in code, never by the model).
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"Why: {pick['rationale']}"}]})
+    blocks.append({"type": "divider"})
 
     if delayed_from:
         blocks.insert(0, {"type": "context", "elements": [

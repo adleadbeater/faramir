@@ -60,9 +60,7 @@ def test_recovery_run_restores_and_posts_no_picks_then_next_run_is_normal(env):
 
     # The next healthy run operates normally.
     for p in list((env["tmp"] / "out").iterdir()):
-        for f in p.iterdir():
-            f.unlink()
-        p.rmdir()
+        __import__("shutil").rmtree(p)
     assert main(env) == 0
     from tests.test_run_daily_corpus import pick_msgs
 
