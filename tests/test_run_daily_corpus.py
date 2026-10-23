@@ -177,12 +177,27 @@ def _degraded_copy(tmp):
     return str(p), target["tmdb_id"]
 
 
+def ledger_candidate_targets(env):
+    """Every candidate the run considered (Phase 4 ranks before Claude, so the Claude payload is
+    only the top slots; the candidates ledger still lists all of them)."""
+    from faramir.events.ledger import Ledger
+
+    (run_dir,) = (env["tmp"] / "out").iterdir()
+    return {r["target"] for r in Ledger(str(run_dir / "ledger")).read("candidates")}
+
+
+def _target_key(tmdb):
+    with open(V2_PATH) as f:
+        film = next(x for x in json.load(f)["films"] if x["tmdb_id"] == tmdb)
+    return f"comp:{film.get('imdb_id') or film['tmdb_id']}"
+
+
 def test_degraded_target_is_a_candidate_on_the_ok_corpus(env):
     _, bad_tmdb = _degraded_copy(env["tmp"])
-    fake = FakeAnthropic([pick_first_candidate]).install(env["monkeypatch"])
+    FakeAnthropic([pick_first_candidate]).install(env["monkeypatch"])
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
     run(env)
-    assert bad_tmdb in candidate_comp_ids(fake)
+    assert _target_key(bad_tmdb) in ledger_candidate_targets(env)
 
 
 def test_degraded_corpus_excludes_bad_record_and_warns(env):
@@ -192,6 +207,7 @@ def test_degraded_corpus_excludes_bad_record_and_warns(env):
     run(env)
 
     assert bad_tmdb not in candidate_comp_ids(fake)
+    assert _target_key(bad_tmdb) not in ledger_candidate_targets(env)
     header = json.dumps(header_msgs(env["slack"])[0]["blocks"], ensure_ascii=False)
     assert "Comparison data degraded" in header and "invalid: 1" in header
 

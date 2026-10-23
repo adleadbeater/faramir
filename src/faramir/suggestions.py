@@ -71,6 +71,9 @@ def suggestion_id(row: dict) -> str | None:
     axis = str(row.get("axis") or "").strip()
     kind = str(row.get("kind") or "").strip()
     target = comp or (f"M{threshold}" if threshold else "")
+    if kind == "event":  # Phase 4: weekend/Discovery events — one per film per strategy per day
+        strategy = str(row.get("angle_category") or "").strip()
+        target = f"E{strategy}" if strategy else ""
     if not (run_date and active and target and axis and kind):
         return None
     return hashlib.sha1("|".join([run_date, active, target, axis, kind]).encode()).hexdigest()[:16]

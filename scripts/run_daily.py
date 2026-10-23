@@ -697,6 +697,46 @@ def _run(ctx, run_date=None):
         logger.warning("Discovery skipped: %s", exc)
     runtime.note("discovery", discovery_result.summary())
 
+    # Step 10c (Phase 4): learning and prioritization. Published articles are linked and observed
+    # in today's snapshot (age-comparable outcomes); estimates shrink toward broader levels and
+    # stay "calibration pending" without outcomes; every event — daily, weekend, Discovery — gets
+    # a scored decision record; only the ranked set (plus exploration) reaches Claude.
+    from faramir import prioritize as prio
+    from faramir.editorial import match_published
+    from faramir.learning import outcomes as outcomes_mod, pipeline as learn_pipeline, priority as priority_mod
+    from faramir.learning.estimates import estimate as estimate_outcomes
+
+    priority_cfg = priority_mod.load()
+    if cerebro_snap is not None:
+        linked = [m for m in match_published([r.raw for r in suggestions_table.rows], cerebro_snap.articles)
+                  if m.get("url") and not m.get("ambiguous")]
+        rows_by_sid = {r.raw.get("suggestion_id"): r.raw for r in suggestions_table.rows}
+        ledger.append("editorial", [{
+            "id": f"published|{m['suggestion_id']}|{m['url']}", "suggestion_id": m["suggestion_id"], "status": "published",
+            "reason_codes": [m["method"]], "published_url": m["url"], "observed": str(today),
+            "headline": (rows_by_sid.get(m["suggestion_id"]) or {}).get("headline"), "match_confidence": m["confidence"]}
+            for m in linked], month=str(today)[:7])
+        ledger.append("outcome_observations", outcomes_mod.observe(cerebro_snap, {m["url"] for m in linked}),
+                      month=str(today)[:7])
+    outcome_rows, outcome_pending = learn_pipeline.outcome_rows(ledger, priority_cfg)
+    estimates = estimate_outcomes(outcome_rows, "strategy", k=priority_cfg["shrinkage_k"],
+                                  min_n=priority_cfg["experimental_below_n_eff"])
+    delivered_ids = ledger.ids("deliveries")
+    weekend_clusters = [c for c in weekend_result.clusters if c.primary.event_id not in delivered_ids]
+    discovery_items = [i for i in discovery_result.items if i.id not in delivered_ids]
+    slots = config.PICKS_MAX_BY_DAY.get(today.weekday(), 4) + 2
+    active_films_payload, decisions = prio.prioritize(
+        active_films_payload, engine.delivered_clusters, weekend_clusters, discovery_items,
+        {f.get("tmdb_id"): f for f in enriched_active}, cerebro_signals, estimates,
+        learn_pipeline.deliveries_by_strategy(ledger), headline_recs, priority_cfg, ctx.run_id, slots,
+        learn_pipeline.explored_recently(ledger, str(today)))
+    ledger.append("decisions", [d.record() for d in decisions], month=str(today)[:7])
+    runtime.note("prioritization", {
+        "config_version": priority_cfg["version"], "calibration": estimates["__global__"].status,
+        "outcomes": len(outcome_rows), "outcomes_pending": outcome_pending, "decisions": len(decisions),
+        "suggested": [f"{d.rank}:{d.strategy_primary}:{d.score}{' (exploration)' if d.exploration['flag'] else ''}"
+                      for d in decisions if d.disposition["value"] == "suggested"]})
+
     # Step 11: Claude selection
     dow = today.weekday()
     picks_target = config.PICKS_TARGET.get(dow, 4)
@@ -774,6 +814,19 @@ def _run(ctx, run_date=None):
                 "followed_guidance": bool(rec and set(used) & set(rec.guidance()["preferred_constructions"])),
                 "recommended": rec.guidance() if rec else None,
                 "calibration": rec.calibration if rec else "no_evidence"}
+    # Phase 4: the title refiner (Aragorn) behind its interface; NullRefiner until a real adapter is
+    # approved. Any refined headline is used only if it re-validates (facts, meaning, 85 chars).
+    from faramir.adapters.aragorn import NullRefiner, refine_and_validate
+
+    refiner = NullRefiner()
+    refined = []
+    for pick in picks:
+        pick, aragorn_record = refine_and_validate(pick, refiner, lexicon)
+        pick["evidence"] = {**(pick.get("evidence") or {}), "aragorn": aragorn_record}
+        if pick.get("kind") == "event":
+            pick["rationale"] = ((pick["evidence"].get("strategy_event") or {}).get("rationale"))
+        refined.append(pick)
+    picks = refined
     corpus_by_tmdb = {f.get("tmdb_id"): f for f in corpus}
 
     # Step 12: Log -> post -> confirm. Every pick gets an immutable suggestion_id
@@ -889,6 +942,17 @@ def _run(ctx, run_date=None):
         if cluster is not None and item.suggestion_id in posted:
             delivered_clusters.append(cluster)
             sid_by_event[cluster.primary.event_id] = item.suggestion_id
+    weekend_by_event = {c.primary.event_id: c for c in weekend_result.clusters}
+    for item in new_items:
+        se = (item.pick.get("evidence") or {}).get("strategy_event") or {}
+        if item.pick.get("kind") == "event" and item.suggestion_id in posted:
+            if se.get("event_id") in weekend_by_event:
+                delivered_clusters.append(weekend_by_event[se["event_id"]])
+                sid_by_event[se["event_id"]] = item.suggestion_id
+            elif se.get("strategy") == "discovery":
+                ledger.append("deliveries", [{"id": se["event_id"], "event_id": se["event_id"], "story_key": se["event_id"],
+                                              "strategy": "discovery", "status": "proposed", "period": str(today),
+                                              "suggestion_id": item.suggestion_id, "evidence": se.get("values")}])
     strategy_engine.record_deliveries(ledger, delivered_clusters, bom_date_used.isoformat(), sid_by_event)
     runtime.note("delivery", {
         "new": [i.suggestion_id for i in new_items], "replayed": [i.suggestion_id for i in replay_items],

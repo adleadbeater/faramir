@@ -220,7 +220,12 @@ def post_pick(
     if suggestion_id:
         meta += f"  ·  ref {suggestion_id}"
 
-    if kind == "milestone":
+    if kind == "event":
+        se = (pick.get("evidence") or {}).get("strategy_event") or {}
+        numbers_block = {"type": "section", "text": {"type": "mrkdwn", "text": (
+            f"*{active_title}*  ·  {str(se.get('strategy', '')).replace('_', ' ').title()} event"
+            + (f"  ·  No. {se['chart_rank']} on the weekend chart" if se.get("chart_rank") else ""))}}
+    elif kind == "milestone":
         # Milestone pick: no comp film
         numbers_block = {
             "type": "section",

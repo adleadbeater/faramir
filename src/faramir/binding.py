@@ -34,7 +34,7 @@ def candidate_id(data_date: str, active, comp, threshold, axis: str, kind: str) 
     return hashlib.sha1(f"{data_date}|{active}|{target}|{axis}|{kind}".encode()).hexdigest()[:16]
 
 
-@dataclass
+@dataclass(eq=False)
 class Candidate:
     candidate_id: str
     active_tmdb_id: int
@@ -46,6 +46,7 @@ class Candidate:
     suppressed: bool
     comp: dict | None
     milestone_type: str | None
+    event: dict | None = None      # Phase 4: the weekend/Discovery event behind a kind="event" candidate
 
 
 @dataclass
@@ -76,6 +77,13 @@ def index_candidates(active_films: list[dict], data_date: str) -> tuple[dict, di
         aid = _int(film.get("tmdb_id"))
         films[aid] = film
         for c in film.get("candidates", []):
+            if c.get("kind") == "event":
+                # Phase 4: a weekend or Discovery event, bound by (film, strategy) — one per film per strategy.
+                cand = Candidate(candidate_id=candidate_id(data_date, aid, None, None, "weekend", f"event:{c['strategy']}"),
+                                 active_tmdb_id=aid, comp_tmdb_id=None, axis="weekend", kind="event", threshold=None,
+                                 categories=[c["strategy"]], suppressed=False, comp=None, milestone_type=None, event=c)
+                index.setdefault((aid, ("E", c["strategy"]), "weekend"), []).append(cand)
+                continue
             comp = c.get("comp") or None
             comp_id = _int(comp.get("tmdb_id")) if comp else None
             threshold = _int(c.get("threshold_value"))
@@ -94,7 +102,21 @@ def _category_ok(category: str, allowed: list[str]) -> bool:
     return category in allowed or bool(CATEGORY_FAMILIES.get(category, set()) & set(allowed))
 
 
+def _event_evidence(c: Candidate, film: dict, data_date: str) -> dict:
+    e = c.event
+    return {"data_date": data_date, "corpus_gross_as_of": None,
+            "event": {"axis": "weekend", "kind": "event", "milestone_type": None, "threshold": None,
+                      "status": e.get("status")},
+            "active": {k: film.get(k) for k in ("tmdb_id", "title", "genres", "director", "lead_cast")},
+            "comp": None, "categories": [e["strategy"]],
+            "strategy_event": {"event_id": e["event_id"], "strategy": e["strategy"], "chart_rank": e.get("chart_rank"),
+                               "values": e.get("event_values") or {}, "status": e.get("status"),
+                               "rationale": e.get("rationale")}}
+
+
 def _evidence(c: Candidate, film: dict, data_date: str, gross_as_of: str | None) -> dict:
+    if c.kind == "event":
+        return _event_evidence(c, film, data_date)
     comp = c.comp
     return {
         "data_date": data_date,
@@ -126,7 +148,13 @@ def bind_picks(picks: list[dict], active_films: list[dict], data_date: str, gros
         if aid not in films:
             reject(pick, "active film is not in today's payload")
             continue
-        if comp is not None:
+        if kind == "event":
+            strategy = str(pick.get("angle_category") or "")
+            matches = index.get((aid, ("E", strategy), "weekend"), [])
+            if not matches:
+                reject(pick, f"no {strategy!r} event for this film (angle_category must name the event's strategy)")
+                continue
+        elif comp is not None:
             if kind == "milestone":
                 reject(pick, "kind 'milestone' given with a comparison film")
                 continue

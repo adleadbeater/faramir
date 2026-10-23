@@ -219,7 +219,18 @@ def _films(pick: dict) -> dict[str, list[str]]:
 
 def _completed_event(ev: dict) -> bool:
     event = ev.get("event") or {}
+    if event.get("kind") == "event":
+        return event.get("status") == "confirmed"
     return event.get("kind") == "just_passed" or (event.get("kind") == "milestone" and event.get("milestone_type") == "just_passed")
+
+
+def _event_values(ev: dict) -> list[float]:
+    vals = (ev.get("strategy_event") or {}).get("values") or {}
+    out = []
+    for v in vals.values():
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            out.append(float(v))
+    return out
 
 
 def check_claims(pick: dict) -> list[str]:
@@ -231,6 +242,14 @@ def check_claims(pick: dict) -> list[str]:
     reasons, event_claims = [], 0
     for c in pick.get("claims") or []:
         t = c.get("type")
+        if t == "event":
+            se = ev.get("strategy_event") or {}
+            if (event.get("kind") == "event" and se.get("strategy") and
+                    str(c.get("text") or "").strip() and se.get("status") in ("confirmed", "anticipated")):
+                event_claims += 1
+            else:
+                reasons.append("claim_mismatch:event: no deliverable weekend/Discovery event is bound to this pick")
+            continue
         if t == "chart_position" and chart_rank(pick) is not None:
             continue  # evidence-backed weekend rank (SR-1); the wording is checked by the lexical scan
         if t in NEVER_SUPPORTED:
@@ -562,6 +581,12 @@ def _film_values(ev: dict) -> dict[str, dict[str, float]]:
 
 def figure_checks(pick: dict) -> list[str]:
     ev = pick["evidence"]
+    if (ev.get("event") or {}).get("kind") == "event":
+        # Weekend/Discovery event: every figure must be one of the event's stored values.
+        known = _event_values(ev)
+        return [f"unverified_figure: {txt.strip()} matches no value of the bound event"
+                for value, tol, txt in parse_money(f"{pick.get('headline', '')} {pick.get('angle', '')}")
+                if not any(abs(value - k) <= tol + 1e-6 for k in known)]
     comp = ev.get("comp")
     event = ev.get("event") or {}
     event_axis = event.get("axis")

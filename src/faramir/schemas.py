@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 
 ClaimType = Literal[
     "passed_comp", "nearing_comp", "crossed_milestone", "nearing_milestone", "relation", "genre_descriptor",
+    "event",  # Phase 4: states a weekend/Discovery event (bound by film + strategy); figures checked against its values
     # Declared so the model can report them honestly; validation rejects every one in Phase 0.
     "rank", "record", "superlative", "chart_position", "first_or_only", "count",
 ]
@@ -24,7 +25,7 @@ class Claim(BaseModel):
     type: ClaimType
     comp_tmdb_id: int | None
     threshold: int | None
-    axis: Literal["domestic", "worldwide"] | None
+    axis: Literal["domestic", "worldwide", "weekend"] | None
     relation: Literal["franchise", "same_director", "same_star"] | None
     genre: str | None
     text: str
@@ -37,8 +38,8 @@ class Pick(BaseModel):
     active_title: str
     comp_tmdb_id: int | None
     comp_title: str | None
-    axis: Literal["domestic", "worldwide"]
-    kind: Literal["just_passed", "about_to_pass", "milestone"]
+    axis: Literal["domestic", "worldwide", "weekend"]
+    kind: Literal["just_passed", "about_to_pass", "milestone", "event"]
     threshold_value: int | None
     angle_category: str
     headline: str

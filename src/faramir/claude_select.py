@@ -146,6 +146,15 @@ the pick probably isn't strong enough.
   MovieWeb's historical box-office results) and use a listed power word only where it fits
   naturally and truthfully. Guidance never overrides the evidence rules above.
 
+## Ranked candidates and event candidates
+
+- Candidates arrive ranked (`rank`, `score`). Prefer higher-ranked ones unless a lower one is
+  clearly the better story; `exploration: true` marks a deliberate test slot — judge it on merit.
+- A candidate with kind "event" is a weekend-chart or Discovery event. For it return kind "event",
+  axis "weekend", `angle_category` = the candidate's `strategy`, null comp and threshold fields, and
+  a claim `{"type": "event", "text": ...}` (plus `chart_position` if you state its rank). Use only
+  figures from its `event_values`, and rank wording only as its `chart_rank` states.
+
 ## Output format
 
 Return a JSON object ONLY. Do not write any analysis, reasoning, or prose before or after the JSON.
@@ -234,6 +243,12 @@ def _slim_payload(payload: dict) -> dict:
                 "secondary_strategy": c.get("secondary_strategy"),
                 "rationale": c.get("rationale"),
                 "headline_guidance": c.get("headline_guidance"),
+                "rank": c.get("rank"),
+                "score": c.get("score"),
+                "exploration": c.get("exploration"),
+                "status": c.get("status"),
+                "chart_rank": c.get("chart_rank"),
+                "event_values": c.get("event_values"),
             })
         slim_film = {k: v for k, v in film.items() if k != "candidates"}
         slim_film["candidates"] = slim_candidates
