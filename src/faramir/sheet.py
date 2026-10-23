@@ -51,6 +51,20 @@ SUGGESTIONS_HEADERS = [
     "thread_feedback",
 ]
 
+# Schema v2 (Increment 6): columns appended to the right of the v1 layout.
+# suggestion_id is immutable once written; the delivery_* columns track Slack
+# delivery. Existing columns keep their positions.
+DELIVERY_COLUMNS = [
+    "suggestion_id",
+    "delivery_state",
+    "delivery_attempts",
+    "last_attempt_at",
+    "delivery_run_id",
+    "data_date",
+    "delivery_note",
+]
+SUGGESTIONS_HEADERS_V2 = SUGGESTIONS_HEADERS + DELIVERY_COLUMNS
+
 
 def get_sheet_client() -> gspread.Client:
     """Auth from GOOGLE_SA_JSON env var."""

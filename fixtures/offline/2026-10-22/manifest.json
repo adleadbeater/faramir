@@ -63,6 +63,15 @@
      }
     ]
    }
+  },
+  {
+   "method": "GET",
+   "prefix": "https://slack.com/api/conversations.history",
+   "json": {
+    "ok": true,
+    "messages": [],
+    "has_more": false
+   }
   }
  ]
 }

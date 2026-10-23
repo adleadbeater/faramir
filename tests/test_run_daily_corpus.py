@@ -77,6 +77,16 @@ def run(env, *args):
     return load_run_daily().main(["--out-root", str(env["tmp"] / "out"), *args])
 
 
+def pick_msgs(slack):
+    """Pick messages (tagged faramir_pick). Increment 6: the daily header is a
+    bot message too, so counting all messages no longer counts picks."""
+    return [m for m in slack.messages if (m.get("metadata") or {}).get("event_type") == "faramir_pick"]
+
+
+def header_msgs(slack):
+    return [m for m in slack.messages if (m.get("metadata") or {}).get("event_type") == "faramir_header"]
+
+
 def payload_of(call):
     return json.loads(call["messages"][0]["content"])
 
@@ -111,8 +121,9 @@ def test_ok_corpus_runs_normally(env):
 
     assert len(fake.calls) == 1 and candidate_comp_ids(fake)
     slack = env["slack"]
-    assert len(slack.messages) == 1  # one pick posted
-    header = json.dumps(slack.webhook_posts[0]["payload"])
+    assert len(pick_msgs(slack)) == 1  # one pick posted
+    (hdr,) = header_msgs(slack)
+    header = json.dumps(hdr["blocks"])
     assert "1 editorial pick" in header and "degraded" not in header
     assert state_after(env["gc"])[0]["domestic_today"] == 152_000_000
 
@@ -178,7 +189,7 @@ def test_degraded_corpus_excludes_bad_record_and_warns(env):
     run(env)
 
     assert bad_tmdb not in candidate_comp_ids(fake)
-    header = json.dumps(env["slack"].webhook_posts[0]["payload"], ensure_ascii=False)
+    header = json.dumps(header_msgs(env["slack"])[0]["blocks"], ensure_ascii=False)
     assert "Comparison data degraded" in header and "invalid: 1" in header
 
 
@@ -196,5 +207,5 @@ def test_pick_with_comp_outside_usable_corpus_is_dropped(env):
     FakeAnthropic([invented]).install(env["monkeypatch"])
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
     run(env)
-    assert env["slack"].messages == []
-    assert "0 editorial picks" in json.dumps(env["slack"].webhook_posts[0]["payload"])
+    assert pick_msgs(env["slack"]) == []
+    assert "0 editorial picks" in json.dumps(header_msgs(env["slack"])[0]["blocks"])

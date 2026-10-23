@@ -216,8 +216,11 @@ def test_empty_tab_gets_header_once_even_after_timeout():
     gc.book("S").add_tab("suggestions")
     ws(gc).fail_on("append_rows", requests.Timeout(), partial=3)  # header + 2 rows landed
     append_new(gc, "S", NEW)
+    from faramir.sheet import SUGGESTIONS_HEADERS_V2
+
     data = ws(gc).data
-    assert data[0] == H and sum(1 for r in data if r == H) == 1 and len(data) == 3
+    assert data[0] == SUGGESTIONS_HEADERS_V2 and sum(1 for r in data if r == SUGGESTIONS_HEADERS_V2) == 1
+    assert len(data) == 3
 
 
 def test_unidentifiable_pick_is_never_retried():
@@ -379,8 +382,14 @@ def test_daily_run_preserves_history_and_reruns_add_no_duplicates(env):
     from tests.fakes.fake_anthropic import FakeAnthropic
 
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
+    from faramir.sheet import DELIVERY_COLUMNS
+    from faramir.suggestions import plan_migration
+
     tab = env["gc"].book("S").worksheet("suggestions")
-    tab.rows = [H] + [cells(r) for r in LEGACY]
+    legacy = [H] + [cells(r) for r in LEGACY]
+    plan = plan_migration(parse(legacy))  # Increment 6: the daily run needs schema v2
+    tab.rows = [legacy[0] + DELIVERY_COLUMNS] + [
+        legacy[a["row"] - 1] + [a[c] for c in DELIVERY_COLUMNS] for a in plan["assignments"]]
     before = [list(r) for r in tab.rows]
     first = {}
 
@@ -395,8 +404,9 @@ def test_daily_run_preserves_history_and_reruns_add_no_duplicates(env):
     assert tab.rows[: len(before)][0] == before[0]
     for i, old in enumerate(before[1:], start=1):  # every historical row: same position,
         new = tab.rows[i]                           # only feedback cells may differ
-        assert [v for j, v in enumerate(new) if H[j] not in FEEDBACK_COLUMNS] == \
-               [v for j, v in enumerate(old) if H[j] not in FEEDBACK_COLUMNS]
+        # Pick columns unchanged; feedback and delivery columns may be updated by the run.
+        assert new[: len(H)][: H.index("slack_ts")] == old[: len(H)][: H.index("slack_ts")]
+        assert new[len(H)] == old[len(H)]  # immutable suggestion_id
     assert len(tab.rows) == len(before) + 1
     assert main(env) == 0                           # same-day rerun
     assert len(tab.rows) == len(before) + 1         # no duplicate suggestion row
@@ -414,3 +424,24 @@ def test_daily_run_stops_when_suggestions_cannot_be_read(env):
     assert ops <= {"state_meta"}  # only the lock acquire/release
     report, _, _ = artifacts(env)
     assert report["halted_reason"].startswith("suggestions read failed")
+
+
+def test_realistic_slack_ts_with_trailing_zeros_survives_the_feedback_path(monkeypatch):
+    """Regression (found in Increment 6): numericised records turned the ts
+    1700000001.000100 into 1700000001.0001, so feedback matched no row."""
+    from faramir.feedback import fetch_feedback
+    from tests.fakes.fake_http import FakeHTTP
+    from tests.fakes.fake_slack import FakeSlack
+
+    gc = FakeClient()
+    row = pick(comp=31, active=9, run_date="2026-10-21", slack_ts="1700000001.000100")
+    gc.book("S").add_tab("suggestions", [H, cells(row)])
+    http = FakeHTTP().install(monkeypatch)
+    slack = FakeSlack().attach(http)
+    slack.reactions["1700000001.000100"] = [{"name": "+1", "count": 4}]
+    table = read_table(gc, "S")
+    assert table.records()[0]["slack_ts"] != "1700000001.000100"  # the numericised view is lossy...
+    fetched = fetch_feedback("xoxb", "C1", [r.raw for r in table.rows], date(2026, 10, 21))
+    res = apply_feedback(gc, "S", table, fetched)                  # ...the raw view is exact
+    assert res.updated == ["1700000001.000100"]
+    assert ws(gc).rows[1][H.index("thumbs_up")] == "4"

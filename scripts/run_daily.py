@@ -176,14 +176,20 @@ def _run(ctx, run_date=None):
         flush_usage_to_sheet,
     )
     from faramir.claude_select import build_payload, select_picks
-    from faramir.slack_post import post_header, post_pick, post_init, post_failure, post_corpus_abort, post_alert
+    from faramir.slack_post import post_header, post_header_message, post_init, post_failure, post_corpus_abort, post_alert
+    from faramir.delivery import (
+        COUNTS_TOWARD_TODAY, DeliveryItem, SlackTarget, deliver, reconcile, should_post_header,
+        suppression_records, triage_undelivered,
+    )
     from faramir.state_integrity import ABORT as STATE_ABORT, PROCEED
     from faramir.state_store import StateConflict, StateRecoveryRefused, StateStore
     from faramir.tmdb import resolve_tmdb_id, get_movie_details
     from faramir.feedback import fetch_feedback
     from faramir.suggestions import (
         SuggestionsReadError, SuggestionsWriteIncident, append_new, apply_feedback, read_table as read_suggestions_table,
+        suggestion_id as derive_suggestion_id, update_by_id,
     )
+    from datetime import datetime, timezone
 
     sheet_id = os.environ.get("FARAMIR_SHEET_ID", "")
     cerebro_sheet_id = os.environ.get("CEREBRO_MW_SHEET_ID", "")
@@ -288,12 +294,17 @@ def _run(ctx, run_date=None):
         _stop(f"suggestions read failed: {exc}", "cannot read the suggestions tab — stopped")
         return
     runtime.note("suggestions_table", suggestions_table.ambiguity_report())
+    if suggestions_table.header and (suggestions_table.schema != 2 or any(r.sid is None for r in suggestions_table.rows)):
+        _stop("suggestions tab is not on schema v2 (explicit suggestion_id + delivery columns); "
+              "run scripts/migrate_suggestions.py — separately approved", "suggestions tab needs migration — stopped")
+        return
 
     # Feedback on yesterday's picks: only the four feedback cells of rows that
     # are unambiguously identified; anything questionable is refused and reported.
     if slack_bot_token and slack_channel_id:
         try:
-            fetched = fetch_feedback(slack_bot_token, slack_channel_id, suggestions_table.records(), yesterday)
+            # Exact cell text: numericised records would turn ts 1700000001.000100 into 1700000001.0001.
+            fetched = fetch_feedback(slack_bot_token, slack_channel_id, [r.raw for r in suggestions_table.rows], yesterday)
             fb = apply_feedback(gc, sheet_id, suggestions_table, fetched)
             runtime.note("feedback", {"updated": len(fb.updated), "unchanged": len(fb.unchanged),
                                       "moved": fb.moved, "refused": fb.refused})
@@ -303,8 +314,26 @@ def _run(ctx, run_date=None):
             raise
         except Exception as exc:
             logger.warning("Feedback collection failed (non-fatal): %s", exc)
-    else:
-        logger.info("SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set — skipping feedback collection")
+    slack_target = SlackTarget(slack_bot_token, slack_channel_id) if slack_bot_token and slack_channel_id else None
+
+    # Step 1c: Resolve open delivery outcomes from Slack history (log -> post ->
+    # confirm). A failed history read resolves nothing: those picks stay open,
+    # keep suppressing, and are never reposted on that evidence.
+    reconciliation = None
+    if slack_target:
+        try:
+            reconciliation = reconcile(gc, sheet_id, suggestions_table, slack_target, today, datetime.now(timezone.utc))
+            runtime.note("delivery_reconciliation", reconciliation.summary())
+            if not reconciliation.history_ok:
+                logger.warning("Delivery reconciliation unavailable: %s", reconciliation.history_error)
+            suggestions_table = read_suggestions_table(gc, sheet_id)
+        except (runtime.WriteBlocked, SuggestionsWriteIncident):
+            raise
+        except (SheetReadError, SuggestionsReadError) as exc:
+            _stop(f"suggestions re-read failed after reconciliation: {exc}", "cannot read the suggestions tab — stopped")
+            return
+    if not slack_target:
+        logger.info("SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set — skipping feedback and delivery reconciliation")
 
     # Step 2: Load state tab — detect cold start (validated above). An empty
     # state is only seeded when explicitly requested.
@@ -560,7 +589,8 @@ def _run(ctx, run_date=None):
     cerebro_signals = {**talent_signals, **franchise_signals}
 
     # Step 9: Build suppressed pairs from recent suggestions
-    suppressed_pairs = _suppressed_pairs(suggestions_table.records(), today, config.SUPPRESS_DAYS)
+    # Definitely-undelivered picks (not_delivered/expired/failed/dismissed) no longer suppress.
+    suppressed_pairs = _suppressed_pairs(suppression_records(suggestions_table), today, config.SUPPRESS_DAYS)
     runtime.note("suppressed_pairs", len(suppressed_pairs))
 
     # Step 10: Find candidates and milestones
@@ -652,24 +682,21 @@ def _run(ctx, run_date=None):
     runtime.note("picks", {"returned": len(picks), "after_validation": len(validated_picks)})
     picks = validated_picks
 
-    # Step 12: Post to Slack
-    post_header(slack_url, len(picks), len(enriched_active), today, warning=corpus_load.editor_warning())
+    # Step 12: Log -> post -> confirm. Every pick gets an immutable suggestion_id
+    # and a delivery_state; nothing already logged is ever knowingly reposted.
+    data_date = bom_date_used
+    usable_comp_ids = {str(f.get("tmdb_id")) for f in corpus if f.get("tmdb_id") is not None}
+    existing_ids = suggestions_table.by_id()
 
-    suggestion_rows: list[dict] = []
-
+    new_rows: list[dict] = []
+    new_items: list = []
+    skipped_existing: list[str] = []
     for pick in picks:
         comp_tmdb = pick.get("comp_tmdb_id")
         comp_film = corpus_by_tmdb.get(comp_tmdb) if comp_tmdb else None
         active_tmdb = pick.get("active_tmdb_id")
         active_film_match = next((f for f in enriched_active if f.get("tmdb_id") == active_tmdb), {})
-
-        slack_ts = None
-        if slack_bot_token and slack_channel_id:
-            slack_ts = post_pick(slack_bot_token, slack_channel_id, pick, active_film_match, comp_film)
-        else:
-            logger.warning("No SLACK_BOT_TOKEN/SLACK_CHANNEL_ID — pick not posted to Slack")
-
-        suggestion_rows.append({
+        row = {
             "run_date": str(today),
             "active_tmdb_id": pick.get("active_tmdb_id", ""),
             "active_title": pick.get("active_title", ""),
@@ -682,22 +709,90 @@ def _run(ctx, run_date=None):
             "headline": pick.get("headline", ""),
             "angle": pick.get("angle", ""),
             "richness_score": pick.get("richness_score", ""),
-            "slack_ts": slack_ts or "",
+            "slack_ts": "",
             "thumbs_up": "",
             "thumbs_down": "",
             "thread_replies": "",
             "thread_feedback": "",
-        })
+            "delivery_state": "planned",
+            "delivery_attempts": "0",
+            "last_attempt_at": "",
+            "delivery_run_id": ctx.run_id,
+            "data_date": data_date.isoformat(),
+            "delivery_note": "",
+        }
+        sid = derive_suggestion_id(row)
+        if sid is None:
+            logger.warning("Pick without identifying fields skipped: %s", pick.get("headline"))
+            continue
+        if sid in existing_ids:
+            skipped_existing.append(sid)  # already logged (posted, open or undelivered): never knowingly repost
+            continue
+        row["suggestion_id"] = sid
+        new_rows.append(row)
+        new_items.append(DeliveryItem(sid, pick, active_film_match, comp_film))
 
-    # Step 13: Write state and log suggestions
-    if suggestion_rows:
-        appended = append_new(gc, sheet_id, suggestion_rows)
+    # Undelivered picks: automatic retry only when Slack history was read
+    # reliably this run and the evidence is unchanged; the rest expire for
+    # manual review (scripts/replay_picks.py).
+    triage = triage_undelivered(suggestions_table, today, data_date, usable_comp_ids)
+    if triage.expired:
+        update_by_id(gc, sheet_id, {sid: {"delivery_state": "expired", "delivery_note": f"expired: {why}"}
+                                    for sid, why in triage.expired.items()}, "expire_delivery")
+    replay_items = []
+    if slack_target and reconciliation is not None and reconciliation.history_ok:
+        for r in triage.replay:
+            rec = r.record
+            comp_id = rec.get("comp_tmdb_id")
+            try:
+                comp_film = corpus_by_tmdb.get(int(comp_id)) if comp_id not in ("", None, "None") else None
+            except (TypeError, ValueError):
+                comp_film = None
+            active_film_match = next((f for f in enriched_active if str(f.get("tmdb_id")) == str(rec.get("active_tmdb_id"))), {})
+            replay_items.append(DeliveryItem(r.sid, dict(rec), active_film_match, comp_film,
+                                             attempts_before=int(rec.get("delivery_attempts") or 0), replay=True))
+
+    # Daily cap across reruns: already-logged picks for today count against it.
+    already_today = sum(1 for r in suggestions_table.rows
+                        if str(r.get("run_date")) == today.isoformat() and r.get("delivery_state") in COUNTS_TOWARD_TODAY)
+    capacity = max(0, picks_max - already_today)
+    replay_items = replay_items[:capacity]
+    capacity -= len(replay_items)
+    over_cap = [i.suggestion_id for i in new_items[capacity:]]
+    new_items = new_items[:capacity]
+    keep = {i.suggestion_id for i in new_items}
+    new_rows = [r for r in new_rows if r["suggestion_id"] in keep]
+
+    # Step 13a: log new picks as 'planned' BEFORE any Slack post.
+    if new_rows:
+        appended = append_new(gc, sheet_id, new_rows)
         runtime.note("suggestions_append", {
             "appended": len(appended.appended), "already_present": len(appended.already_present),
             "attempts": appended.attempts, "duplicates_after": appended.duplicates_after,
-            "unconfirmed_unidentifiable": appended.unconfirmed_unidentifiable,
         })
 
+    deliveries = replay_items + new_items
+    post_hdr, header_why = should_post_header(reconciliation, slack_target is not None)
+    if post_hdr:
+        if slack_target:
+            post_header_message(slack_bot_token, slack_channel_id, len(deliveries), len(enriched_active), today,
+                                warning=corpus_load.editor_warning())
+        else:
+            post_header(slack_url, len(deliveries), len(enriched_active), today, warning=corpus_load.editor_warning())
+
+    outcomes = []
+    if deliveries and slack_target:
+        outcomes = deliver(gc, sheet_id, slack_target, deliveries, ctx.run_id)
+    elif deliveries:
+        logger.warning("No SLACK_BOT_TOKEN/SLACK_CHANNEL_ID — %d pick(s) logged as planned, not posted", len(deliveries))
+    runtime.note("delivery", {
+        "new": [i.suggestion_id for i in new_items], "replayed": [i.suggestion_id for i in replay_items],
+        "skipped_already_logged": skipped_existing, "over_daily_cap": over_cap,
+        "expired": triage.expired, "header": header_why,
+        "outcomes": [o.__dict__ for o in outcomes],
+    })
+
+    # Step 13b: write state.
     runtime.note("state_generation", store.write(list(new_state.values())))
 
     # Step 14: Flush Claude usage records to the Usage sheet tab (fails open)

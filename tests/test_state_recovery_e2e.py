@@ -64,7 +64,9 @@ def test_recovery_run_restores_and_posts_no_picks_then_next_run_is_normal(env):
             f.unlink()
         p.rmdir()
     assert main(env) == 0
-    assert len(env["slack"].messages) == 1
+    from tests.test_run_daily_corpus import pick_msgs
+
+    assert len(pick_msgs(env["slack"])) == 1
     m = parse_meta(book(env).worksheet(META_TAB).data)
     assert m["state"]["status"] == "ok" and m["lock"]["status"] == "released"
 

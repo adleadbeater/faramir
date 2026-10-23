@@ -58,7 +58,9 @@ def test_enabled_requires_explicit_true_and_runs(env):
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
     FakeAnthropic([pick_first_candidate]).install(env["monkeypatch"])
     assert main(env) == 0
-    assert len(env["slack"].messages) == 1
+    from tests.test_run_daily_corpus import pick_msgs
+
+    assert len(pick_msgs(env["slack"])) == 1
 
 
 # ── corpus ABORT: no operational writes, one alert ──────────────────────
@@ -132,7 +134,8 @@ def test_dry_run_full_pipeline_makes_zero_external_writes(env):
     assert ("sheets", "append_suggestions", "recorded") in ops
     assert ("slack", "chat.postMessage", "recorded") in ops
     assert all(o == "recorded" for _, _, o in ops)
-    assert [p["kind"] for p in preview] == ["webhook:slack", "chat.postMessage"]
+    # Increment 6: the header is a tagged bot message (chat.postMessage) when a bot token exists.
+    assert [p["kind"] for p in preview] == ["chat.postMessage", "chat.postMessage"]
     assert report["picks"] == {"returned": 1, "after_validation": 1}
 
 
@@ -162,7 +165,9 @@ def test_offline_fixture_run_needs_no_credentials_or_network(tmp_path):
     assert report["mode"] == "dry_run" and report["enabled"] is False
     assert report["corpus"]["status"] == "OK" and report["picks"]["after_validation"] == 1
     assert writes and all(w["outcome"] == "recorded" for w in writes)
-    assert {w["op"] for w in writes} >= {"write_state", "append_suggestions", "chat.postMessage", "webhook_post"}
+    assert {w["op"] for w in writes} >= {"write_state", "append_suggestions", "chat.postMessage", "mark_sending",
+                                          "confirm_delivery"}
+    assert sum(1 for w in writes if w["op"] == "chat.postMessage") == 2  # header + one pick
     assert any("[OFFLINE FIXTURE]" in json.dumps(p["blocks"]) for p in preview)
 
 

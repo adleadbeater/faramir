@@ -152,7 +152,8 @@ def test_slack_dry_run_returns_placeholder_ts_and_sends_nothing(monkeypatch):
     c = ctx(mode=DRY_RUN)
     with runtime.use(c):
         post_header("https://hooks.slack.com/x", 1, 1, date(2026, 10, 22))
-        assert post_pick("xoxb", "C1", _pick(), {}, None) == "dryrun-1"
+        res = post_pick("xoxb", "C1", _pick(), {}, None)
+        assert (res.status, res.ts) == ("dry_run", "dryrun-1")
     assert http.calls == []
     assert [p["kind"] for p in c.slack_preview] == ["webhook:slack", "chat.postMessage"]
     assert not any(p["sent"] for p in c.slack_preview)

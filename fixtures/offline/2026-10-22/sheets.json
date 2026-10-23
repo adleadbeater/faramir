@@ -58,13 +58,20 @@
     "thumbs_up",
     "thumbs_down",
     "thread_replies",
-    "thread_feedback"
+    "thread_feedback",
+    "suggestion_id",
+    "delivery_state",
+    "delivery_attempts",
+    "last_attempt_at",
+    "delivery_run_id",
+    "data_date",
+    "delivery_note"
    ],
    [
     "2026-10-21",
-    5001,
+    "5001",
     "Beta Story",
-    9,
+    "9",
     "Synthetic Comp",
     "domestic",
     "about_to_pass",
@@ -72,12 +79,19 @@
     "studio_sibling",
     "Synthetic earlier pick",
     "Fixture row.",
-    5,
+    "5",
     "1700000001.000100",
     "",
     "",
     "",
-    ""
+    "",
+    "abcf68ec3294a109",
+    "posted",
+    "",
+    "",
+    "",
+    "",
+    "migrated"
    ]
   ],
   "state_lkg": [

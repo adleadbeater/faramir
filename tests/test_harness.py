@@ -109,7 +109,7 @@ def test_read_values_raises_on_api_error_never_returns_empty():
 def test_append_new_end_state_single_call():
     # Replaces the Increment 0 baselines for append_suggestions (one call per
     # row, header via append_row): one append_rows call, header included.
-    from faramir.sheet import SUGGESTIONS_HEADERS
+    from faramir.sheet import SUGGESTIONS_HEADERS_V2
     from faramir.suggestions import append_new, read_table
 
     gc = FakeClient()
@@ -117,7 +117,7 @@ def test_append_new_end_state_single_call():
     rows = [dict(run_date="2026-10-22", active_tmdb_id=1, comp_tmdb_id=c, axis="domestic", kind="just_passed",
                  headline=h) for c, h in ((9, "H1"), (8, "H2"))]
     append_new(gc, "S", rows)
-    assert gc.book("S").worksheet("suggestions").data[0] == SUGGESTIONS_HEADERS
+    assert gc.book("S").worksheet("suggestions").data[0] == SUGGESTIONS_HEADERS_V2  # empty tab starts on schema v2
     assert [r["headline"] for r in read_table(gc, "S").records()] == ["H1", "H2"]
     assert [c[1] for c in gc.writes()] == ["append_rows"]
 
@@ -138,8 +138,9 @@ def test_post_pick_and_header_through_fake_slack(monkeypatch):
     http = FakeHTTP().install(monkeypatch)
     slack = FakeSlack().attach(http)
     post_header("https://hooks.slack.com/services/T/B/X", 1, 3, date(2026, 10, 22))
-    ts = post_pick("xoxb-test", "C1", _pick(), {"domestic_today": 45_000_000}, {"release_year": "2010", "domestic_lifetime": 44_000_000, "worldwide_lifetime": 90_000_000})
-    assert ts == slack.messages[0]["ts"]
+    res = post_pick("xoxb-test", "C1", _pick(), {"domestic_today": 45_000_000}, {"release_year": "2010", "domestic_lifetime": 44_000_000, "worldwide_lifetime": 90_000_000})
+    # Increment 6: post_pick returns a PostResult (status + ts) instead of a bare ts.
+    assert (res.status, res.ts) == ("posted", slack.messages[0]["ts"])
     assert len(slack.webhook_posts) == 1
     assert "Alpha Film Passes Classic" in json.dumps(slack.messages[0]["blocks"])
 
@@ -150,7 +151,8 @@ def test_post_pick_returns_none_on_slack_error(monkeypatch):
     http = FakeHTTP().install(monkeypatch)
     slack = FakeSlack().attach(http)
     slack.fail_next_post("ratelimited")
-    assert post_pick("xoxb-test", "C1", _pick(), {}, None) is None
+    res = post_pick("xoxb-test", "C1", _pick(), {}, None)
+    assert (res.status, res.ts, res.error) == ("failed", None, "ratelimited")
 
 
 def test_collect_feedback_reads_reactions_and_replies(monkeypatch):
