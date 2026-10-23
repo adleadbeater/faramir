@@ -56,6 +56,7 @@ def test_recovery_run_restores_and_posts_no_picks_then_next_run_is_normal(env):
     assert parse_meta(book(env).worksheet(META_TAB).data)["state"]["status"] == "restored"
     report, _, _ = artifacts(env)
     assert report["halted_reason"].startswith("recovery run")
+    assert not [c for c in env["gc"].writes() if c[0] == "suggestions"]  # recovery logs no picks
 
     # The next healthy run operates normally.
     for p in list((env["tmp"] / "out").iterdir()):
@@ -230,7 +231,9 @@ def test_init_refuses_invalid_state_or_reinitialization(legacy_book, monkeypatch
 def test_rollback_plan_is_printed_and_touches_nothing(legacy_book, capsys):
     gc, _ = legacy_book
     assert load_script("init_state_integrity").main(["--rollback-plan"]) == 0
-    assert "delete the tabs 'state_meta' and 'state_lkg'" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Keep 'state_lkg'" in out and "never delete recovery records automatically" in out
+    assert "delete the tabs" not in out
     assert gc.calls == []
 
 

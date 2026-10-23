@@ -16,9 +16,10 @@ Apply order (a crash at any point is safe to re-run):
      start ("not initialized"), so a half-finished init is never used.
 The ``state`` tab itself is never written.
 
-Rollback (``--rollback-plan`` prints this): set FARAMIR_ENABLED=false; delete
-the ``state_meta`` and ``state_lkg`` tabs in the Sheets UI. ``state`` is
-untouched by initialization, and the pre-v2 code ignores both tabs.
+Rollback (``--rollback-plan`` prints this): set FARAMIR_ENABLED=false; verify
+``state`` independently; archive (rename) ``state_meta``; keep ``state_lkg``
+(archived, not deleted) until state is verified. Nothing is deleted
+automatically. ``state`` is untouched by initialization.
 """
 
 from __future__ import annotations
@@ -44,9 +45,10 @@ logger = logging.getLogger("faramir.init_state_integrity")
 
 ROLLBACK = [
     "1. Set the repository variable FARAMIR_ENABLED=false (stops v2 runs).",
-    "2. In Google Sheets, delete the tabs 'state_meta' and 'state_lkg'.",
-    "3. The 'state' tab was never written by initialization; no data restore is needed.",
-    "4. Pre-v2 code ignores both tabs; re-running this script later re-adopts the current state.",
+    "2. Independently verify the 'state' tab (row count and checksum against the plan output) before changing anything else.",
+    "3. Remove only 'state_meta' (rename it to 'state_meta_archived_<date>'); the daily run then reports not-initialized.",
+    "4. Keep 'state_lkg' (rename it to 'state_lkg_archived_<date>') until state has been verified; never delete recovery records automatically.",
+    "5. The 'state' tab was never written by initialization; pre-v2 code ignores the archived tabs.",
 ]
 
 

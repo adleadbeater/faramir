@@ -106,26 +106,20 @@ def test_read_values_raises_on_api_error_never_returns_empty():
         read_values(gc, "S", "nope")
 
 
-def test_append_suggestions_end_state():
-    from faramir.sheet import SUGGESTIONS_HEADERS, append_suggestions, read_suggestions
+def test_append_new_end_state_single_call():
+    # Replaces the Increment 0 baselines for append_suggestions (one call per
+    # row, header via append_row): one append_rows call, header included.
+    from faramir.sheet import SUGGESTIONS_HEADERS
+    from faramir.suggestions import append_new, read_table
 
     gc = FakeClient()
     gc.book("S").add_tab("suggestions")
-    append_suggestions(gc, "S", [{"run_date": "2026-10-22", "headline": "H1"}, {"run_date": "2026-10-22", "headline": "H2"}])
-    data = gc.book("S").worksheet("suggestions").data
-    assert data[0] == SUGGESTIONS_HEADERS
-    assert [r["headline"] for r in read_suggestions(gc, "S")] == ["H1", "H2"]
-
-
-@pytest.mark.baseline
-def test_baseline_append_suggestions_one_call_per_row():
-    # Replaced in Increment 5: a single append_rows call.
-    from faramir.sheet import append_suggestions
-
-    gc = FakeClient()
-    gc.book("S").add_tab("suggestions")
-    append_suggestions(gc, "S", [{"headline": "H1"}, {"headline": "H2"}, {"headline": "H3"}])
-    assert [c[1] for c in gc.writes()].count("append_row") == 4  # header + 3 rows
+    rows = [dict(run_date="2026-10-22", active_tmdb_id=1, comp_tmdb_id=c, axis="domestic", kind="just_passed",
+                 headline=h) for c, h in ((9, "H1"), (8, "H2"))]
+    append_new(gc, "S", rows)
+    assert gc.book("S").worksheet("suggestions").data[0] == SUGGESTIONS_HEADERS
+    assert [r["headline"] for r in read_table(gc, "S").records()] == ["H1", "H2"]
+    assert [c[1] for c in gc.writes()] == ["append_rows"]
 
 
 # ── Slack baselines ──────────────────────────────────────────────────────

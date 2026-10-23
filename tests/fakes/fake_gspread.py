@@ -137,10 +137,17 @@ class FakeWorksheet:
         self.rows.append(["" if v is None else str(v) for v in values])
 
     def append_rows(self, values, **kwargs) -> None:
+        """``fail_on("append_rows", exc, partial=k)`` appends the first k rows
+        and then raises — k == len(values) models an append that succeeded on
+        Google's side but timed out before the client saw the response."""
         values = [list(v) for v in values]
-        self._record("append_rows", values)
-        for v in values:
-            self.rows.append(["" if x is None else str(x) for x in v])
+
+        def land(k):
+            for v in values[:k]:
+                self.rows.append(["" if x is None else str(x) for x in v])
+
+        self._record("append_rows", values, on_fail=land)
+        land(len(values))
 
     def update(self, values=None, range_name=None, **kwargs):
         # Mirror gspread 6.x: legacy (range, values) order is swapped with a warning.
@@ -155,10 +162,16 @@ class FakeWorksheet:
         return {"updatedRange": f"{self.title}!{range_name}"}
 
     def batch_update(self, data: list[dict], **kwargs):
-        self._record("batch_update", [dict(d) for d in data])
-        for d in data:
-            row0, col0, _, _ = _parse_range(d["range"])
-            self._write_block(row0, col0, [list(v) for v in d["values"]])
+        """``partial=k`` applies the first k range updates, then raises."""
+        data = [dict(d) for d in data]
+
+        def apply(k):
+            for d in data[:k]:
+                row0, col0, _, _ = _parse_range(d["range"])
+                self._write_block(row0, col0, [list(v) for v in d["values"]])
+
+        self._record("batch_update", data, on_fail=apply)
+        apply(len(data))
         return {"totalUpdatedCells": sum(len(v) for d in data for v in d["values"])}
 
     def batch_clear(self, ranges: list[str]) -> None:

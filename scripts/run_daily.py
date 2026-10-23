@@ -115,6 +115,41 @@ def _validate_pick_figures(pick: dict, comp_film: dict | None, active_film: dict
     return None
 
 
+def _suppressed_pairs(past_suggestions: list[dict], today, suppress_days: int) -> set[tuple]:
+    """Pairs suggested within the suppression window (unchanged pre-v2 logic)."""
+    suppress_cutoff = today - timedelta(days=suppress_days)
+    suppressed_pairs: set[tuple] = set()
+    for s in past_suggestions:
+        try:
+            run_d = date.fromisoformat(str(s.get("run_date", "")))
+        except ValueError:
+            continue
+        if run_d >= suppress_cutoff:
+            raw_comp_id = s.get("comp_tmdb_id", "")
+            threshold = s.get("threshold_value", "")
+            # Sheets may store Python None as the literal string "None" — treat that as absent
+            comp_id_str = str(raw_comp_id).strip() if raw_comp_id is not None else ""
+            if comp_id_str in ("", "None", "0"):
+                comp_id_str = ""
+            if comp_id_str:
+                try:
+                    suppressed_pairs.add((
+                        int(s.get("active_tmdb_id") or 0),
+                        int(comp_id_str),
+                        s.get("axis", ""),
+                    ))
+                except ValueError:
+                    pass
+            elif threshold and str(threshold).strip() not in ("", "None"):
+                # milestone suppression key uses 0 for comp_tmdb_id
+                suppressed_pairs.add((
+                    int(s.get("active_tmdb_id") or 0),
+                    0,
+                    s.get("axis", ""),
+                ))
+    return suppressed_pairs
+
+
 def _sheet_client(ctx):
     """Production Sheets client, or the read-only fixture client offline."""
     if ctx.fixtures_dir:
@@ -138,8 +173,6 @@ def _run(ctx, run_date=None):
     from faramir.cerebro import load_cerebro, build_talent_signals, build_franchise_signals
     from faramir.sheet import (
         SheetReadError,
-        read_suggestions,
-        append_suggestions,
         flush_usage_to_sheet,
     )
     from faramir.claude_select import build_payload, select_picks
@@ -147,8 +180,10 @@ def _run(ctx, run_date=None):
     from faramir.state_integrity import ABORT as STATE_ABORT, PROCEED
     from faramir.state_store import StateConflict, StateRecoveryRefused, StateStore
     from faramir.tmdb import resolve_tmdb_id, get_movie_details
-    from faramir.feedback import collect_feedback
-    from faramir.sheet import write_suggestions
+    from faramir.feedback import fetch_feedback
+    from faramir.suggestions import (
+        SuggestionsReadError, SuggestionsWriteIncident, append_new, apply_feedback, read_table as read_suggestions_table,
+    )
 
     sheet_id = os.environ.get("FARAMIR_SHEET_ID", "")
     cerebro_sheet_id = os.environ.get("CEREBRO_MW_SHEET_ID", "")
@@ -238,14 +273,34 @@ def _run(ctx, run_date=None):
 
     ctx.on_exit.append(_release_lock)
 
-    # Step 1b: Collect feedback on yesterday's picks (before anything else)
+    def _stop(reason: str, title: str) -> None:
+        """Halt after the lock is held: release it first, then alert."""
+        _release_lock()
+        ctx.halt(reason)
+        post_alert(slack_url, f"Faramir {today}: {title}", [reason])
+        logger.error("=== Faramir stopped: %s ===", reason)
+
+    # Step 1b: Read the suggestions tab once. It drives suppression, so a read
+    # failure stops the run (it used to silently disable suppression).
+    try:
+        suggestions_table = read_suggestions_table(gc, sheet_id)
+    except (SheetReadError, SuggestionsReadError) as exc:
+        _stop(f"suggestions read failed: {exc}", "cannot read the suggestions tab — stopped")
+        return
+    runtime.note("suggestions_table", suggestions_table.ambiguity_report())
+
+    # Feedback on yesterday's picks: only the four feedback cells of rows that
+    # are unambiguously identified; anything questionable is refused and reported.
     if slack_bot_token and slack_channel_id:
         try:
-            all_suggestions = read_suggestions(gc, sheet_id)
-            updated = collect_feedback(slack_bot_token, slack_channel_id, all_suggestions, yesterday)
-            if updated != all_suggestions:
-                write_suggestions(gc, sheet_id, updated)
-                logger.info("Feedback collected and written for %s", yesterday)
+            fetched = fetch_feedback(slack_bot_token, slack_channel_id, suggestions_table.records(), yesterday)
+            fb = apply_feedback(gc, sheet_id, suggestions_table, fetched)
+            runtime.note("feedback", {"updated": len(fb.updated), "unchanged": len(fb.unchanged),
+                                      "moved": fb.moved, "refused": fb.refused})
+            if fb.refused:
+                logger.warning("Feedback refused for %d suggestion(s): %s", len(fb.refused), fb.refused)
+        except (runtime.WriteBlocked, SuggestionsWriteIncident):
+            raise
         except Exception as exc:
             logger.warning("Feedback collection failed (non-fatal): %s", exc)
     else:
@@ -505,37 +560,8 @@ def _run(ctx, run_date=None):
     cerebro_signals = {**talent_signals, **franchise_signals}
 
     # Step 9: Build suppressed pairs from recent suggestions
-    suppress_cutoff = today - timedelta(days=config.SUPPRESS_DAYS)
-    past_suggestions = read_suggestions(gc, sheet_id)
-    suppressed_pairs: set[tuple] = set()
-    for s in past_suggestions:
-        try:
-            run_d = date.fromisoformat(str(s.get("run_date", "")))
-        except ValueError:
-            continue
-        if run_d >= suppress_cutoff:
-            raw_comp_id = s.get("comp_tmdb_id", "")
-            threshold = s.get("threshold_value", "")
-            # Sheets may store Python None as the literal string "None" — treat that as absent
-            comp_id_str = str(raw_comp_id).strip() if raw_comp_id is not None else ""
-            if comp_id_str in ("", "None", "0"):
-                comp_id_str = ""
-            if comp_id_str:
-                try:
-                    suppressed_pairs.add((
-                        int(s.get("active_tmdb_id") or 0),
-                        int(comp_id_str),
-                        s.get("axis", ""),
-                    ))
-                except ValueError:
-                    pass
-            elif threshold and str(threshold).strip() not in ("", "None"):
-                # milestone suppression key uses 0 for comp_tmdb_id
-                suppressed_pairs.add((
-                    int(s.get("active_tmdb_id") or 0),
-                    0,
-                    s.get("axis", ""),
-                ))
+    suppressed_pairs = _suppressed_pairs(suggestions_table.records(), today, config.SUPPRESS_DAYS)
+    runtime.note("suppressed_pairs", len(suppressed_pairs))
 
     # Step 10: Find candidates and milestones
     candidates = find_all_candidates(enriched_active, corpus, cerebro_signals, suppressed_pairs)
@@ -665,7 +691,12 @@ def _run(ctx, run_date=None):
 
     # Step 13: Write state and log suggestions
     if suggestion_rows:
-        append_suggestions(gc, sheet_id, suggestion_rows)
+        appended = append_new(gc, sheet_id, suggestion_rows)
+        runtime.note("suggestions_append", {
+            "appended": len(appended.appended), "already_present": len(appended.already_present),
+            "attempts": appended.attempts, "duplicates_after": appended.duplicates_after,
+            "unconfirmed_unidentifiable": appended.unconfirmed_unidentifiable,
+        })
 
     runtime.note("state_generation", store.write(list(new_state.values())))
 

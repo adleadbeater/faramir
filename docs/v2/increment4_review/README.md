@@ -129,10 +129,11 @@ Old code's `write_state` clears the state tab and rewrites it without updating `
    `state` is never written. A crash before step 2 leaves no `state_meta`, so the daily run refuses to start, and re-running the script completes it in "partial" mode.
 4. A daily `--dry-run` must show `State integrity: PROCEED`.
 
-**Rollback** (`--rollback-plan` prints it):
+**Rollback** (`--rollback-plan` prints it; revised in Increment 5 per review):
 1. Set `FARAMIR_ENABLED=false`.
-2. Delete the `state_meta` and `state_lkg` tabs.
-3. `state` was never touched by initialization.
-4. Pre-v2 code ignores both tabs.
+2. Independently verify `state` (row count and checksum against the plan output).
+3. Archive (rename) `state_meta`.
+4. **Keep `state_lkg`** (archived, not deleted) until state is verified.
+5. Nothing is deleted automatically. `state` was never touched by initialization.
 
 **Approval:** each of steps 2–3 and any rollback is a separate production action needing your approval. Nothing here has been run against production.

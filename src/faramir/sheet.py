@@ -110,51 +110,27 @@ def create_tab(client: gspread.Client, sheet_id: str, title: str, values: list[l
     return True
 
 
-def read_suggestions(client: gspread.Client, sheet_id: str) -> list[dict]:
-    """Read 'suggestions' tab."""
-    try:
-        sh = client.open_by_key(sheet_id)
-        ws = sh.worksheet("suggestions")
-        return ws.get_all_records()
-    except Exception as exc:
-        logger.error("read_suggestions failed: %s", exc)
-        return []
+def append_values(client: gspread.Client, sheet_id: str, tab: str, values: list[list[str]], op: str) -> bool:
+    """Append rows in ONE API call. Guarded. Not exactly-once: callers must
+    reconcile by stable id after any error (see faramir.suggestions)."""
+    if not authorize("sheets", op, {"tab": tab, "rows": len(values), "values": values}):
+        return False
+    ws = client.open_by_key(sheet_id).worksheet(tab)
+    ws.append_rows(values, value_input_option="RAW", insert_data_option="INSERT_ROWS")
+    logger.info("append_values: %s +%d rows (%s)", tab, len(values), op)
+    return True
 
 
-def append_suggestions(client: gspread.Client, sheet_id: str, rows: list[dict]) -> None:
-    """Append rows to suggestions tab."""
-    if not rows:
-        return
-    values = [[str(row.get(h, "")) for h in SUGGESTIONS_HEADERS] for row in rows]
-    if not authorize("sheets", "append_suggestions", {"tab": "suggestions", "rows": len(rows), "values": values}):
-        return
-    sh = client.open_by_key(sheet_id)
-    ws = sh.worksheet("suggestions")
-
-    # Ensure headers exist
-    existing = ws.row_values(1)
-    if not existing:
-        ws.append_row(SUGGESTIONS_HEADERS)
-
-    for v in values:
-        ws.append_row(v)
-    logger.info("append_suggestions: appended %d rows", len(rows))
-
-
-def write_suggestions(client: gspread.Client, sheet_id: str, rows: list[dict]) -> None:
-    """Overwrite the full suggestions tab (used when updating rows with feedback)."""
-    if not rows:
-        return
-    data = [SUGGESTIONS_HEADERS]
-    for row in rows:
-        data.append([str(row.get(h, "")) for h in SUGGESTIONS_HEADERS])
-    if not authorize("sheets", "write_suggestions", {"tab": "suggestions", "rows": len(rows), "values": data}):
-        return
-    sh = client.open_by_key(sheet_id)
-    ws = sh.worksheet("suggestions")
-    ws.clear()
-    ws.update("A1", data)
-    logger.info("write_suggestions: wrote %d rows", len(rows))
+def update_cells(client: gspread.Client, sheet_id: str, tab: str, updates: list[dict], op: str) -> bool:
+    """Write specific A1 ranges only ({"range": "M5:P5", "values": [[...]]}). Guarded."""
+    if not updates:
+        return True
+    if not authorize("sheets", op, {"tab": tab, "updates": updates}):
+        return False
+    ws = client.open_by_key(sheet_id).worksheet(tab)
+    ws.batch_update(updates, value_input_option="RAW")
+    logger.info("update_cells: %s %d range(s) (%s)", tab, len(updates), op)
+    return True
 
 
 # ── Claude usage tracking ──────────────────────────────────────────────────────
