@@ -1,0 +1,675 @@
+[
+ {
+  "scenario": "H1 normal collection",
+  "steps": [
+   {
+    "step": "collect",
+    "result": {
+     "run": "run-1",
+     "status": "committed",
+     "revision": 1,
+     "rows_written": 8,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "scenario": "H2 identical content twice",
+  "steps": [
+   {
+    "step": "collect",
+    "result": {
+     "run": "run-1",
+     "status": "committed",
+     "revision": 1,
+     "rows_written": 8,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit"
+     ]
+    }
+   },
+   {
+    "step": "collect again",
+    "result": {
+     "run": "run-2",
+     "status": "unchanged",
+     "revision": null,
+     "rows_written": 0,
+     "orphans_aborted": 0,
+     "detail": "already committed; retrieval recorded"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 2,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit",
+      "observe"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "scenario": "H3 crash after begin, before rows",
+  "steps": [
+   {
+    "step": "arm",
+    "result": "armed",
+    "reader_after": {
+     "status": "missing",
+     "revision": null,
+     "rows": 0,
+     "collection_status": null,
+     "observations": 0,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 0,
+     "events": []
+    }
+   },
+   {
+    "step": "collect",
+    "result": {
+     "run": "run-1",
+     "status": "CRASHED (simulated)"
+    },
+    "reader_after": {
+     "status": "missing",
+     "revision": null,
+     "rows": 0,
+     "collection_status": null,
+     "observations": 0,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 0,
+     "events": [
+      "begin"
+     ]
+    }
+   },
+   {
+    "step": "next run",
+    "result": {
+     "run": "run-2",
+     "status": "resumed_committed",
+     "revision": 1,
+     "rows_written": 8,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 2,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "observe",
+      "commit"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "scenario": "H4 crash after 3 of 8 rows",
+  "steps": [
+   {
+    "step": "arm",
+    "result": "armed",
+    "reader_after": {
+     "status": "missing",
+     "revision": null,
+     "rows": 0,
+     "collection_status": null,
+     "observations": 0,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 0,
+     "events": []
+    }
+   },
+   {
+    "step": "collect",
+    "result": {
+     "run": "run-1",
+     "status": "CRASHED (simulated)"
+    },
+    "reader_after": {
+     "status": "missing",
+     "revision": null,
+     "rows": 0,
+     "collection_status": null,
+     "observations": 0,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 3,
+     "events": [
+      "begin"
+     ]
+    }
+   },
+   {
+    "step": "next run",
+    "result": {
+     "run": "run-2",
+     "status": "resumed_committed",
+     "revision": 1,
+     "rows_written": 5,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 2,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "observe",
+      "commit"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "scenario": "H5 crash after rows, before commit",
+  "steps": [
+   {
+    "step": "arm",
+    "result": "armed",
+    "reader_after": {
+     "status": "missing",
+     "revision": null,
+     "rows": 0,
+     "collection_status": null,
+     "observations": 0,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 0,
+     "events": []
+    }
+   },
+   {
+    "step": "collect",
+    "result": {
+     "run": "run-1",
+     "status": "CRASHED (simulated)"
+    },
+    "reader_after": {
+     "status": "missing",
+     "revision": null,
+     "rows": 0,
+     "collection_status": null,
+     "observations": 0,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin"
+     ]
+    }
+   },
+   {
+    "step": "next run",
+    "result": {
+     "run": "run-2",
+     "status": "resumed_committed",
+     "revision": 1,
+     "rows_written": 0,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 2,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "observe",
+      "commit"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "scenario": "H6 append acknowledgement lost",
+  "steps": [
+   {
+    "step": "arm",
+    "result": "armed",
+    "reader_after": {
+     "status": "missing",
+     "revision": null,
+     "rows": 0,
+     "collection_status": null,
+     "observations": 0,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 0,
+     "events": []
+    }
+   },
+   {
+    "step": "collect",
+    "result": {
+     "run": "run-1",
+     "status": "CRASHED (simulated)"
+    },
+    "reader_after": {
+     "status": "missing",
+     "revision": null,
+     "rows": 0,
+     "collection_status": null,
+     "observations": 0,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin"
+     ]
+    }
+   },
+   {
+    "step": "next run",
+    "result": {
+     "run": "run-2",
+     "status": "resumed_committed",
+     "revision": 1,
+     "rows_written": 0,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 2,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "observe",
+      "commit"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "scenario": "H7 revised figures",
+  "steps": [
+   {
+    "step": "collect",
+    "result": {
+     "run": "run-1",
+     "status": "committed",
+     "revision": 1,
+     "rows_written": 8,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit"
+     ]
+    }
+   },
+   {
+    "step": "collect revised",
+    "result": {
+     "run": "run-2",
+     "status": "committed",
+     "revision": 2,
+     "rows_written": 8,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 2,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": [
+      1
+     ]
+    },
+    "tabs_after": {
+     "history_rows": 16,
+     "events": [
+      "begin",
+      "commit",
+      "begin",
+      "commit"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "scenario": "H8 crashed revision, source reverts, orphan aborted",
+  "steps": [
+   {
+    "step": "collect",
+    "result": {
+     "run": "run-1",
+     "status": "committed",
+     "revision": 1,
+     "rows_written": 8,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit"
+     ]
+    }
+   },
+   {
+    "step": "arm",
+    "result": "armed",
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit"
+     ]
+    }
+   },
+   {
+    "step": "collect revised",
+    "result": {
+     "run": "run-2",
+     "status": "CRASHED (simulated)"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 10,
+     "events": [
+      "begin",
+      "commit",
+      "begin"
+     ]
+    }
+   },
+   {
+    "step": "source back to original",
+    "result": {
+     "run": "run-3",
+     "status": "unchanged",
+     "revision": null,
+     "rows_written": 0,
+     "orphans_aborted": 0,
+     "detail": "already committed; retrieval recorded"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 2,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 10,
+     "events": [
+      "begin",
+      "commit",
+      "begin",
+      "observe"
+     ]
+    }
+   },
+   {
+    "step": "70 hours later",
+    "result": {
+     "run": "run-4",
+     "status": "unchanged",
+     "revision": null,
+     "rows_written": 0,
+     "orphans_aborted": 1,
+     "detail": "already committed; retrieval recorded"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "confirmed_by_recollection",
+     "observations": 3,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 10,
+     "events": [
+      "begin",
+      "commit",
+      "begin",
+      "observe",
+      "abort",
+      "observe"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "scenario": "H9 malformed chart after a good one",
+  "steps": [
+   {
+    "step": "collect",
+    "result": {
+     "run": "run-1",
+     "status": "committed",
+     "revision": 1,
+     "rows_written": 8,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit"
+     ]
+    }
+   },
+   {
+    "step": "collect malformed",
+    "result": {
+     "run": "run-2",
+     "status": "rejected",
+     "revision": null,
+     "rows_written": 0,
+     "orphans_aborted": 0,
+     "detail": "chart malformed: gross_mismatch"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit",
+      "reject"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "scenario": "Confirmation by recollection",
+  "steps": [
+   {
+    "step": "Sunday",
+    "result": {
+     "run": "run-1",
+     "status": "committed",
+     "revision": 1,
+     "rows_written": 8,
+     "orphans_aborted": 0,
+     "detail": "8 distinct records verified"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "provisional",
+     "observations": 1,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit"
+     ]
+    }
+   },
+   {
+    "step": "Tuesday",
+    "result": {
+     "run": "run-2",
+     "status": "unchanged",
+     "revision": null,
+     "rows_written": 0,
+     "orphans_aborted": 0,
+     "detail": "already committed; retrieval recorded"
+    },
+    "reader_after": {
+     "status": "available",
+     "revision": 1,
+     "rows": 8,
+     "collection_status": "confirmed_by_recollection",
+     "observations": 2,
+     "superseded_revisions": []
+    },
+    "tabs_after": {
+     "history_rows": 8,
+     "events": [
+      "begin",
+      "commit",
+      "observe"
+     ]
+    }
+   }
+  ]
+ }
+]
