@@ -298,7 +298,23 @@ def repair_main(argv: list[str]) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    if "--repair-identities" in sys.argv[1:]:
-        sys.exit(repair_main(sys.argv[1:]))
+LEGACY_BUILD_REFUSAL = (
+    "Refusing to run the legacy full corpus build. It re-scrapes BOM (pending a "
+    "source-terms decision), resolves identities by title search (the bug behind "
+    "322 mislabelled rows) and writes the v1 format the v2 pipeline rejects. Use "
+    "--repair-identities, or pass --legacy-full-build to run it deliberately."
+)
+
+
+def entrypoint(argv: list[str]) -> int:
+    if "--repair-identities" in argv:
+        return repair_main(argv)
+    if "--legacy-full-build" not in argv:
+        logger.error(LEGACY_BUILD_REFUSAL)
+        return 3
     main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(entrypoint(sys.argv[1:]))

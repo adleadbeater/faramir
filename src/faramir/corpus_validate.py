@@ -55,6 +55,24 @@ def _metric_problem(film: dict, metric: str) -> str | None:
     return None
 
 
+def row_problems(film: dict) -> list[str]:
+    """Row-level defects that make a single record unusable (not file-level gates)."""
+    problems = []
+    if not film.get("imdb_id"):
+        problems.append("missing imdb_id")
+    ident = film.get("identity_status")
+    if ident not in IDENTITY_STATUSES:
+        problems.append(f"identity_status {ident!r}")
+    elif ident == "verified" and not isinstance(film.get("tmdb_id"), int):
+        problems.append("verified without tmdb_id")
+    metric = [p for p in (_metric_problem(film, m) for m in METRICS) if p]
+    problems += metric
+    if not metric and film.get("domestic_status") == "reported" and film.get("worldwide_status") == "reported":
+        if film["worldwide_lifetime"] < film["domestic_lifetime"]:
+            problems.append("worldwide below domestic")
+    return problems
+
+
 def validate_corpus(corpus: dict, previous: dict | None = None, min_rows: int = MIN_ROWS) -> list[Violation]:
     """Return every gate violation; an empty list means the corpus may be written/used."""
     if not isinstance(corpus, dict) or "films" not in corpus or "meta" not in corpus:

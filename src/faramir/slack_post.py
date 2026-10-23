@@ -46,8 +46,18 @@ def _post_message(bot_token: str, channel_id: str, blocks: list[dict]) -> str | 
         return None
 
 
-def post_header(webhook_url: str, picks_count: int, active_films_count: int, run_date: date) -> None:
-    """Post the daily header summary message via webhook."""
+def post_header(
+    webhook_url: str,
+    picks_count: int,
+    active_films_count: int,
+    run_date: date,
+    warning: str | None = None,
+) -> None:
+    """Post the daily header summary message via webhook.
+
+    ``warning`` adds one context line (e.g. degraded comparison data) above the
+    divider; normal days pass None and the header is unchanged.
+    """
     blocks = [
         {
             "type": "header",
@@ -66,8 +76,10 @@ def post_header(webhook_url: str, picks_count: int, active_films_count: int, run
                 ),
             },
         },
-        {"type": "divider"},
     ]
+    if warning:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": warning}]})
+    blocks.append({"type": "divider"})
     _post_webhook(webhook_url, blocks)
 
 
@@ -81,6 +93,8 @@ def post_pick(
     """Post one pick via chat.postMessage. Returns the Slack ts for feedback tracking."""
 
     def fmt_money(val):
+        if val is None:  # unavailable in the source — never shown as zero
+            return "n/a"
         if not val:
             return "—"
         val = int(val)
@@ -184,5 +198,15 @@ def post_init(webhook_url: str, film_count: int) -> None:
     text = (
         f"🏹 *Faramir initialized* — {film_count} active film"
         f"{'s' if film_count != 1 else ''} seeded. First picks will run tomorrow."
+    )
+    _post_webhook(webhook_url, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}])
+
+
+def post_corpus_abort(webhook_url: str, reasons: list[str], run_date: date) -> None:
+    """Alert that the comparison corpus failed integrity and no picks were made."""
+    lines = "\n".join(f"• {r}" for r in reasons[:5])
+    text = (
+        f":warning: *Faramir {run_date.isoformat()}: comparison data failed integrity — no picks today.*\n"
+        f"{lines}"
     )
     _post_webhook(webhook_url, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}])

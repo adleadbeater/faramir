@@ -38,32 +38,74 @@ def _extract_money_values(text: str) -> list[float]:
     return values
 
 
-def _validate_pick_figures(pick: dict, comp_film: dict | None) -> str | None:
+_FIGURE_TOLERANCE = 0.02
+
+
+def _as_positive_number(value) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _validate_pick_figures(pick: dict, comp_film: dict | None, active_film: dict | None = None) -> str | None:
     """Cross-check the comp film's block figures for internal consistency and
     against the prose Claude wrote. Returns a reason string if the pick should
     be dropped, or None if it's fine.
 
-    Two checks, both conservative to avoid false positives:
+    Checks, all conservative:
       1. Worldwide must be >= domestic for the comp film — a hard data-integrity
          invariant. A violation means the corpus figure is wrong (e.g. a partial
          theatrical run rather than a lifetime aggregate).
-      2. If the prose cites a dollar figure far larger (>1.5x) than both the
-         comp's domestic and worldwide block figures, the block is very likely
-         reading a stale/partial number while Claude's prose reflects the real
-         (larger) lifetime gross from its training knowledge.
+      2. The comp's gross on the pick's axis must be reported; a comparison
+         against an unavailable figure is never verifiable.
+      3. If either comp gross is unavailable, every dollar figure in the prose
+         must match (within 2%) a reported figure — comp, active film or
+         threshold. A missing gross is never treated as zero.
+      4. Otherwise, if the prose cites a dollar figure far larger (>1.5x) than
+         both the comp's domestic and worldwide block figures, the block is very
+         likely reading a stale/partial number while Claude's prose reflects the
+         real (larger) lifetime gross from its training knowledge.
+    Checks 2–3 are an interim guard; Increment 8 replaces them with full
+    figure and claim validation.
     """
+    from faramir.corpus import reported
+
     if not comp_film:
         return None
 
-    comp_dom = int(comp_film.get("domestic_lifetime") or 0)
-    comp_ww = int(comp_film.get("worldwide_lifetime") or 0)
+    comp_dom = reported(comp_film, "domestic")
+    comp_ww = reported(comp_film, "worldwide")
 
-    if comp_ww and comp_dom and comp_ww < comp_dom:
+    if comp_ww is not None and comp_dom is not None and comp_ww < comp_dom:
         return f"comp WW ({comp_ww}) < comp Dom ({comp_dom}) — partial-run data"
+
+    axis = pick.get("axis")
+    if axis in ("domestic", "worldwide") and reported(comp_film, axis) is None:
+        return f"comp {axis} gross unavailable — comparison not verifiable"
 
     prose = f"{pick.get('headline', '')} {pick.get('angle', '')}"
     mentioned = _extract_money_values(prose)
-    if mentioned and (comp_ww or comp_dom):
+    if mentioned and (comp_dom is None or comp_ww is None):
+        active = active_film or {}
+        known = [
+            n for n in (
+                comp_dom, comp_ww,
+                _as_positive_number(active.get("domestic_today")),
+                _as_positive_number(active.get("worldwide_today")),
+                _as_positive_number(pick.get("threshold_value")),
+            ) if n
+        ]
+        missing = "domestic" if comp_dom is None else "worldwide"
+        for value in mentioned:
+            if not any(abs(value - k) <= _FIGURE_TOLERANCE * k for k in known):
+                return (
+                    f"prose cites ${value:,.0f}, which matches no reported figure "
+                    f"(comp {missing} gross unavailable)"
+                )
+        return None
+    if mentioned:
         max_mentioned = max(mentioned)
         if max_mentioned > comp_ww * 1.5 and max_mentioned > comp_dom * 1.5:
             return (
@@ -76,7 +118,7 @@ def _validate_pick_figures(pick: dict, comp_film: dict | None) -> str | None:
 def main():
     from faramir import config
     from faramir.bom_fetch import fetch_daily_list, fetch_weekend_list, scrape_worldwide, normalize_title
-    from faramir.corpus import load_corpus, build_index
+    from faramir.corpus import ABORT, load_corpus_v2
     from faramir.matcher import find_all_candidates
     from faramir.milestone import find_milestones
     from faramir.cerebro import load_cerebro, build_talent_signals, build_franchise_signals
@@ -89,7 +131,7 @@ def main():
         flush_usage_to_sheet,
     )
     from faramir.claude_select import build_payload, select_picks
-    from faramir.slack_post import post_header, post_pick, post_init, post_failure
+    from faramir.slack_post import post_header, post_pick, post_init, post_failure, post_corpus_abort
     from faramir.tmdb import resolve_tmdb_id, get_movie_details
     from faramir.feedback import collect_feedback
     from faramir.sheet import write_suggestions
@@ -335,11 +377,28 @@ def main():
             combined = dict(row)
         enriched_active.append(combined)
 
-    # Step 7: Load corpus
-    corpus_path = os.path.join(os.path.dirname(__file__), "..", "data", "corpus.json")
-    corpus = load_corpus(corpus_path)
-    if not corpus:
-        logger.warning("Corpus is empty — no comp matching possible today")
+    # Step 7: Load the schema-v2 comparison corpus and classify its health.
+    # A legacy (v1) or corrupt file is never used and never silently replaced:
+    # ABORT means no picks today, an alert, and state still updated.
+    corpus_path = os.environ.get("FARAMIR_CORPUS_PATH") or os.path.join(
+        os.path.dirname(__file__), "..", "data", "corpus.v2.json"
+    )
+    corpus_load = load_corpus_v2(
+        corpus_path,
+        run_date=today,
+        state_rows=list(new_state.values()),
+        chart_rows=daily,
+        chart_date=bom_date_used,
+    )
+    logger.info("Corpus health: %s", corpus_load.summary())
+    if corpus_load.status == ABORT:
+        post_corpus_abort(slack_url, corpus_load.reasons, today)
+        write_state(gc, sheet_id, list(new_state.values()))
+        flush_usage_to_sheet(gc, sheet_id)
+        logger.error("=== Faramir stopped: comparison corpus ABORT, no picks ===")
+        return
+    # Only usable records (invalid, unresolved and stale ones removed).
+    corpus = corpus_load.films
 
     # Step 8: Load Cerebro signals
     cerebro_rows = []
@@ -469,7 +528,11 @@ def main():
     for pick in picks:
         comp_tmdb = pick.get("comp_tmdb_id")
         comp_film = corpus_by_tmdb.get(comp_tmdb) if comp_tmdb else None
-        reason = _validate_pick_figures(pick, comp_film)
+        if comp_tmdb and comp_film is None:
+            reason = "comp is not a usable corpus record (excluded, stale or unknown)"
+        else:
+            active_film = next((f for f in enriched_active if f.get("tmdb_id") == pick.get("active_tmdb_id")), None)
+            reason = _validate_pick_figures(pick, comp_film, active_film)
         if reason:
             logger.warning(
                 "Dropping pick '%s' vs '%s': %s",
@@ -480,7 +543,7 @@ def main():
     picks = validated_picks
 
     # Step 12: Post to Slack
-    post_header(slack_url, len(picks), len(enriched_active), today)
+    post_header(slack_url, len(picks), len(enriched_active), today, warning=corpus_load.editor_warning())
 
     suggestion_rows: list[dict] = []
 

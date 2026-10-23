@@ -10,6 +10,7 @@ from faramir.config import (
     MIN_RICHNESS_TO_SURFACE,
     ASYMMETRY_THRESHOLD,
 )
+from faramir.corpus import reported
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +64,19 @@ def detect_angle_categories(active_film: dict, comp: dict, corpus: list[dict]) -
     if active_film.get("origin_country") and active_film.get("origin_country") == comp.get("origin_country"):
         categories.append("same_origin")
 
-    # Genre milestone: comp is top-grossing in same genre
+    # Genre milestone: comp is top-grossing in same genre. Ranked only among
+    # films with a reported worldwide gross; a comp whose worldwide gross is
+    # missing can't hold a rank.
     active_genres = set(g.lower() for g in (active_film.get("genres") or []))
     comp_genres = set(g.lower() for g in (comp.get("genres") or []))
-    if active_genres & comp_genres:
+    if active_genres & comp_genres and reported(comp, "worldwide") is not None:
         # Check if comp is the #1 or #2 in that genre by worldwide_lifetime
         shared_genre = list(active_genres & comp_genres)[0]
         genre_top = sorted(
-            [f for f in corpus if shared_genre in [g.lower() for g in f.get("genres", [])]],
-            key=lambda f: f.get("worldwide_lifetime", 0),
+            [f for f in corpus
+             if shared_genre in [g.lower() for g in f.get("genres", [])]
+             and reported(f, "worldwide") is not None],
+            key=lambda f: f["worldwide_lifetime"],
             reverse=True,
         )[:5]
         comp_tmdb = comp.get("tmdb_id")
@@ -86,8 +91,9 @@ def detect_angle_categories(active_film: dict, comp: dict, corpus: list[dict]) -
     no_franchise_overlap = not (active_coll and comp_coll and active_coll == comp_coll)
     no_director_overlap = not (active_dirs & comp_dirs)
     no_cast_overlap = not (active_cast & comp_cast)
+    comp_ww = reported(comp, "worldwide")
     comp_notable = (
-        comp.get("worldwide_lifetime", 0) > 500_000_000
+        (comp_ww is not None and comp_ww > 500_000_000)
         or comp.get("is_best_picture", False)
         or comp.get("is_classic", False)
     )
@@ -168,9 +174,10 @@ def detect_asymmetry(active_film: dict, corpus: list[dict]) -> dict | None:
 
     cohort = []
     for film in corpus:
-        f_dom = film.get("domestic_lifetime", 0)
-        f_ww = film.get("worldwide_lifetime", 0)
-        if not f_dom or not f_ww:
+        # Cohort ratios need both grosses reported; missing is never zero.
+        f_dom = reported(film, "domestic")
+        f_ww = reported(film, "worldwide")
+        if f_dom is None or f_ww is None:
             continue
         f_genres = [g.lower() for g in (film.get("genres") or [])]
         f_year = int(film.get("release_year") or 0)
@@ -226,8 +233,8 @@ def find_candidates(active_film: dict, corpus_index: dict, corpus: list[dict]) -
         for comp in nearby:
             if comp.get("tmdb_id") == active_film.get("tmdb_id"):
                 continue
-            comp_val = comp.get(f"{axis}_lifetime", 0)
-            if not comp_val:
+            comp_val = reported(comp, axis)
+            if comp_val is None:
                 continue
 
             # Determine kind

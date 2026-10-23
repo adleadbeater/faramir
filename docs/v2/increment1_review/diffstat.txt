@@ -1,0 +1,27 @@
+ data/corpus.v2.json                             | 70183 ++++++++++++++++++++++
+ docs/v2/FARAMIR_PHASE0_SPEC.md                  |   787 +
+ docs/v2/FARAMIR_V2_PLAN.md                      |   524 +
+ docs/v2/PHASE0_SPEC_CHANGES_R3.md               |    56 +
+ docs/v2/corpus_identity_audit_2026-10-22.csv    |   323 +
+ docs/v2/corpus_repair_2026-10-23/changes.csv    |   323 +
+ docs/v2/corpus_repair_2026-10-23/report.md      |    66 +
+ requirements-dev.txt                            |     2 +
+ requirements.lock.txt                           |    43 +
+ requirements.txt                                |     2 +-
+ scripts/build_corpus.py                         |    64 +
+ src/faramir/corpus_repair.py                    |   203 +
+ src/faramir/corpus_validate.py                  |   108 +
+ src/faramir/tmdb.py                             |    39 +
+ tests/conftest.py                               |    67 +
+ tests/fakes/__init__.py                         |     1 +
+ tests/fakes/fake_anthropic.py                   |    68 +
+ tests/fakes/fake_gspread.py                     |   236 +
+ tests/fakes/fake_http.py                        |    75 +
+ tests/fakes/fake_slack.py                       |    96 +
+ tests/fixtures/tmdb_find_corpus_2026-10-22.json | 14079 +++++
+ tests/fixtures/tn_daily_synthetic.html          |    16 +
+ tests/test_corpus_identity.py                   |   279 +
+ tests/test_corpus_validate.py                   |   115 +
+ tests/test_harness.py                           |   264 +
+ tests/test_matcher.py                           |    40 +-
+ 26 files changed, 88055 insertions(+), 4 deletions(-)

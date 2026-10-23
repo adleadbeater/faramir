@@ -2,8 +2,9 @@
 
 Install with ``FakeAnthropic([...]).install(monkeypatch)``; it replaces
 ``anthropic.Anthropic`` so ``faramir.claude_select`` builds the fake instead of
-a real client. Each scripted item is either response text (str) or an
-Exception to raise from ``messages.create``.
+a real client. Each scripted item is response text (str), a FakeMessage, an
+Exception to raise from ``messages.create``, or a callable taking the request
+kwargs and returning one of those.
 """
 
 from __future__ import annotations
@@ -44,6 +45,8 @@ class _Messages:
         if not self._owner.script:
             raise AssertionError("FakeAnthropic: no scripted response left")
         item = self._owner.script.pop(0)
+        if callable(item) and not isinstance(item, (FakeMessage, Exception)):
+            item = item(kwargs)  # scripted function of the request
         if isinstance(item, Exception):
             raise item
         if isinstance(item, FakeMessage):
