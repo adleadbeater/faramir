@@ -45,6 +45,7 @@ from faramir.state_integrity import (
     records,
     row_values,
     split,
+    upgrade_rows,
 )
 
 logger = logging.getLogger(__name__)
@@ -144,11 +145,12 @@ class StateStore:
             raise RuntimeError(f"recover() called for {d.action}")
 
         live = read_values(self.client, self.sheet_id, STATE_TAB)
-        merged, conflicts, preserved = merge_editor_values(self.header, d.lkg.rows, live, strict=True)
+        lkg_rows = upgrade_rows(d.lkg.header, d.lkg.rows, self.header)  # a legacy-layout backup is restored on the current header
+        merged, conflicts, preserved = merge_editor_values(self.header, lkg_rows, live, strict=True)
         if conflicts:
             raise StateRecoveryRefused("automatic restore would change editor values: " + "; ".join(conflicts[:5]))
         target_gen = meta["lkg"]["generation"]
-        digest = d.lkg.checksum  # editor columns are outside the checksum
+        digest = checksum(self.header, lkg_rows)  # editor columns are outside the checksum
         meta["state"] = self._stamp(meta["state"], status="restoring", generation=target_gen,
                                     checksum=digest, row_count=len(merged))
         self._write_meta(meta)
@@ -213,15 +215,18 @@ class StateStore:
         # 3. Last-known-good backup — only ever from the state validated at open().
         lkg_meta = meta.get("lkg") or {"key": "lkg"}
         lkg_current = (d.lkg is not None and d.lkg.valid and str(lkg_meta.get("generation")) == str(g)
-                       and lkg_meta.get("checksum") == d.state.checksum)
+                       and lkg_meta.get("checksum") == d.state.checksum and d.lkg.header == self.header)
         if not lkg_current:
-            backup_rows, _, _ = merge_editor_values(self.header, d.state.rows, live, strict=False)
+            # A legacy-layout state is backed up on the current header (same content, blank new columns).
+            base_rows = upgrade_rows(d.state.header, d.state.rows, self.header)
+            base_digest = checksum(self.header, base_rows)
+            backup_rows, _, _ = merge_editor_values(self.header, base_rows, live, strict=False)
             meta["lkg"] = self._stamp(lkg_meta, status="writing", generation=g)
             self._write_meta(meta)
             write_values(self.client, self.sheet_id, LKG_TAB, [self.header] + backup_rows, "write_state_lkg")
             if not dry:
-                self._verify(LKG_TAB, d.state.checksum, len(backup_rows))
-            meta["lkg"] = self._stamp(meta["lkg"], status="ok", generation=g, checksum=d.state.checksum,
+                self._verify(LKG_TAB, base_digest, len(backup_rows))
+            meta["lkg"] = self._stamp(meta["lkg"], status="ok", generation=g, checksum=base_digest,
                                       row_count=len(backup_rows))
             self._write_meta(meta)
 

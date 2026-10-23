@@ -346,3 +346,155 @@ def test_non_length_failure_gets_no_shortening_call(env):
     fake = FakeAnthropic([with_pick(headline=lambda p: p["headline"] + PADDING + " Ever")]).install(env["monkeypatch"])
     main(env)
     assert len(fake.calls) == 1 and pick_msgs(env["slack"]) == []
+
+
+# ── Increment 8 review: ordinary language must stay legal ───────────────
+# Regression guard: these are legitimate headline/angle phrasings. If a future
+# change to the lexical rules rejects one, the title engine became too strict.
+
+LEGITIMATE = [
+    "New Hit Passes Old Classic in Its First Weekend",
+    "New Hit passes Old Classic in its third weekend.",
+    "In its 5th week in theaters, New Hit passes Old Classic.",
+    "New Hit Passes Old Classic After Only Two Weeks in Theaters",
+    "Only 10 days into its run, it passed Old Classic.",
+    "It passed Old Classic, not only at home.",
+    "Ever since its debut, the run has held steady.",
+    "Most of its gross came from domestic audiences.",
+    "Its leading man passed Old Classic's star at the box office.",
+    "At first the opening looked soft; it passed Old Classic anyway.",
+    "Its first trailer promised a hit, and it passed Old Classic.",
+    "The ever-growing run passed Old Classic.",
+]
+
+
+@pytest.mark.parametrize("text", LEGITIMATE)
+def test_ordinary_language_is_not_a_superlative(text):
+    assert lexical_checks(bound(angle=text), []) == []
+
+
+def test_ordinary_phrases_pass_full_validation():
+    p = bound(headline="New Hit Passes Old Classic in Its Second Weekend",
+              angle="Only $5M separated them a week ago; most of its gross is domestic.")
+    assert validate_pick(p, []).ok
+
+
+@pytest.mark.parametrize("text", [
+    "The First Film Since 2019 to Pass Old Classic",       # historical first
+    "For the first time, a film passes Old Classic.",
+    "The only sequel to pass Old Classic this year",       # first/only claim
+    "Only two films have passed Old Classic.",              # count claim
+    "Its biggest weekend ever",
+    "The best opening of the fall",
+    "The most successful entry in the series",
+    "Now the second-biggest film of the year",              # spelled-out ordinal rank
+    "The 4th Film to Pass Old Classic",
+    "Leading the box office again",
+    "A first-ever run past Old Classic",
+])
+def test_unsupported_rank_record_first_claims_stay_blocked(text):
+    assert any(r.startswith("lexical_superlative") for r in lexical_checks(bound(angle=text), []))
+
+
+# ── direction of the comparison ─────────────────────────────────────────
+
+@pytest.mark.parametrize("headline, ok", [
+    ("New Hit Passes Old Classic", True),
+    ("Old Classic Is Passed by New Hit", True),
+    ("Old Classic Falls Behind New Hit", True),
+    ("Old Classic Passes New Hit", False),
+    ("New Hit Is Passed by Old Classic", False),
+    ("New Hit Falls Behind Old Classic", False),
+])
+def test_direction_of_comparison(headline, ok):
+    reasons = lexical_checks(bound(headline=headline), [])
+    assert (not any(r.startswith("direction_reversed") for r in reasons)) is ok
+
+
+# ── genre attribution ───────────────────────────────────────────────────
+# Active "New Hit" is Action/Adventure; comp "Old Classic" is Fantasy here.
+
+FANTASY_COMP = dict(COMP, genres=["Fantasy"])
+
+
+@pytest.mark.parametrize("headline, angle", [
+    ("This Adventure Film Just Passed Old Classic", ""),                  # subject -> active
+    ("New Hit Passes the Fantasy Classic Old Classic", ""),               # title right after -> comp
+    ("New Hit Passes a Beloved Fantasy Film", ""),                         # object of the verb -> comp
+    ("New Hit Passes Old Classic", "Old Classic, the fantasy hit, made $145M domestically."),  # apposition -> comp
+    ("New Hit, the Action Film, Passes Old Classic", ""),                  # apposition -> active
+    ("Old Classic Is Passed by an Action Movie", ""),                      # passive: agent -> active
+])
+def test_genre_correctly_attributed(headline, angle):
+    p = bound(comp=FANTASY_COMP, headline=headline, angle=angle)
+    assert [r for r in lexical_checks(p, []) if r.startswith("genre")] == []
+
+
+@pytest.mark.parametrize("headline, angle", [
+    ("This Fantasy Film Just Passed Old Classic", ""),                    # comp's genre on the active film
+    ("New Hit Passes the Action Classic Old Classic", ""),                # active's genre on the comp
+    ("New Hit Passes a Beloved Adventure Film", ""),                       # object is the comp, not adventure
+    ("New Hit, the Fantasy Film, Passes Old Classic", ""),                 # apposition on the wrong film
+])
+def test_genre_misattributed(headline, angle):
+    p = bound(comp=FANTASY_COMP, headline=headline, angle=angle)
+    assert any(r.startswith("genre_misattributed") for r in lexical_checks(p, []))
+
+
+def test_genre_on_neither_film_and_milestones():
+    p = bound(comp=FANTASY_COMP, headline="New Hit Passes a Horror Film")
+    assert any(r.startswith("genre_unsupported") for r in lexical_checks(p, []))
+    ms = bound(kind="milestone", comp=None, threshold=100_000_000, mtype="just_passed",
+               headline="Fantasy Film New Hit Crosses $100 Million")
+    assert any(r.startswith("genre_unsupported") for r in lexical_checks(ms, []))
+    ok = bound(kind="milestone", comp=None, threshold=100_000_000, mtype="just_passed",
+               headline="Adventure Film New Hit Crosses $100 Million")
+    assert lexical_checks(ok, []) == []
+
+
+# ── shortening must not change meaning ──────────────────────────────────
+
+from faramir.validate import meaning_changes  # noqa: E402
+
+LONG_COMP = dict(COMP, title="Mission: Impossible – Ghost Protocol")
+MS = dict(kind="milestone", comp=None, threshold=1_000_000_000, mtype="just_passed")
+
+
+def test_faithful_shortenings_pass():
+    p = bound(comp=LONG_COMP, headline="New Hit Officially Passes Mission: Impossible – Ghost Protocol at the Domestic Box Office")
+    assert meaning_changes(p, "New Hit Passes Ghost Protocol Domestically") == []
+    m = bound(**MS, headline="New Hit Officially Crosses the $1 Billion Mark at the Worldwide Box Office This Weekend")
+    assert meaning_changes(m, "New Hit Crosses $1 Billion Worldwide") == []
+    assert meaning_changes(m, "New Hit Crosses $1.0B Worldwide") == []
+
+
+@pytest.mark.parametrize("kw, original, shortened, change", [
+    ({}, "New Hit Passes Old Classic at the Box Office", "Old Classic Passes New Hit", "direction was reversed"),
+    ({}, "New Hit Passes Old Classic at the Box Office", "New Hit Is Passed by Old Classic", "direction was reversed"),
+    ({}, "New Hit Passes Old Classic at the Box Office", "New Hit Nears Old Classic", "status wording"),
+    ({}, "New Hit Passes Old Classic at the Box Office", "New Hit Keeps Climbing", "comp film is no longer named"),
+    (dict(kind="about_to_pass", active=NEAR), "New Hit Is About to Pass Old Classic", "New Hit Passes Old Classic", "status wording"),
+    (MS, "New Hit Crosses $1 Billion Worldwide", "New Hit Crosses $100 Million Worldwide", "figure $1 Billion"),
+    (MS, "New Hit Crosses $1 Billion Worldwide", "New Hit Crosses a Milestone", "figure $1 Billion"),
+    (MS, "New Hit Crosses $1 Billion Worldwide", "New Hit Nears $1 Billion Worldwide", "status wording"),
+    ({}, "New Hit Passes Old Classic", "New Hit Passes Old Classic's $145M", "was added"),
+])
+def test_meaning_changes_are_detected(kw, original, shortened, change):
+    p = bound(headline=original, **kw)
+    assert any(change in r for r in meaning_changes(p, shortened)), meaning_changes(p, shortened)
+
+
+def test_meaning_changed_shortening_never_reaches_slack(env):
+    env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
+
+    def reversed_short(kwargs):
+        original = json.loads(kwargs["messages"][0]["content"])["headline"]
+        active, _, comp = original.replace(PADDING, "").partition(" Moves Past ")
+        return json.dumps({"headline": f"{comp} Moves Past {active}"})
+
+    fake = FakeAnthropic([with_pick(headline=lambda p: p["headline"] + PADDING), reversed_short]).install(env["monkeypatch"])
+    main(env)
+    assert len(fake.calls) == 2 and pick_msgs(env["slack"]) == []
+    report, _, _ = artifacts(env)
+    (entry,) = report["validation"]
+    assert any("direction" in r for r in entry["reasons_after"]) and not entry["accepted"]

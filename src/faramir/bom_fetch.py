@@ -94,11 +94,12 @@ def fetch_daily_list(target_date: date) -> list[dict]:
             continue
 
         # Title: look for a cell containing an <a> link to a movie page
-        title = ""
+        title, href = "", ""
         for cell in cells:
             a = cell.find("a", href=re.compile(r"/movie/", re.I))
             if a:
                 title = a.get_text(strip=True)
+                href = a.get("href", "")
                 break
         if not title:
             title = find_col(cells, "movie", "title", "film")
@@ -124,8 +125,10 @@ def fetch_daily_list(target_date: date) -> list[dict]:
         if not gross_to_date:
             continue
 
+        slug_match = re.search(r"/movie/([^/#?]+)", href)
         results.append({
             "title": title,
+            "tn_slug": slug_match.group(1) if slug_match else "",
             "gross_to_date": gross_to_date,
             "daily_gross": daily_gross,
             "days_in_release": days_in_release,

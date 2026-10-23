@@ -54,6 +54,32 @@ def _suppressed_pairs(past_suggestions: list[dict], today, suppress_days: int) -
     return suppressed_pairs
 
 
+def _identity_overrides(gc, sheet_id: str) -> dict[str, int]:
+    """Editor-owned ``identity_overrides`` tab (tn_slug, tmdb_id, note): read-only to Faramir.
+    Missing tab = no overrides. Rows without a slug or an integer tmdb_id are ignored (logged)."""
+    from faramir.sheet import TabMissing, read_values
+
+    try:
+        values = read_values(gc, sheet_id, "identity_overrides")
+    except TabMissing:
+        return {}
+    if not values:
+        return {}
+    header = [str(h).strip() for h in values[0]]
+    if "tn_slug" not in header or "tmdb_id" not in header:
+        logger.warning("identity_overrides: header %s lacks tn_slug/tmdb_id — ignored", header)
+        return {}
+    out: dict[str, int] = {}
+    for n, r in enumerate(values[1:], start=2):
+        r = list(r) + [""] * len(header)
+        slug, tid = str(r[header.index("tn_slug")]).strip(), str(r[header.index("tmdb_id")]).strip()
+        if slug and tid.isdigit():
+            out[slug] = int(tid)
+        elif slug or tid:
+            logger.warning("identity_overrides row %d ignored: tn_slug=%r tmdb_id=%r", n, slug, tid)
+    return out
+
+
 def _join_warnings(*warnings) -> str | None:
     parts = [w for w in warnings if w]
     return "\n".join(parts) if parts else None
@@ -93,7 +119,8 @@ def _run(ctx, run_date=None):
     )
     from faramir.state_integrity import ABORT as STATE_ABORT, PROCEED
     from faramir.state_store import StateConflict, StateRecoveryRefused, StateStore
-    from faramir.tmdb import resolve_tmdb_id, get_movie_details
+    from faramir.tmdb import get_movie_details, get_release_dates, search_movie
+    from faramir import identity as identity_mod
     from faramir.feedback import fetch_feedback
     from faramir.suggestions import (
         SuggestionsReadError, SuggestionsWriteIncident, append_new, apply_feedback, read_table as read_suggestions_table,
@@ -291,32 +318,52 @@ def _run(ctx, run_date=None):
             if normalize_title(w["title"]) not in daily_titles:
                 daily.append(w)
 
-    # Step 4: Resolve / update state for each BOM title
+    # Step 4: Resolve each chart row's identity, then update state. A title
+    # match alone never establishes identity (faramir.identity): stored TN
+    # slug, editor overrides, year-aware search, re-release detection, and
+    # unresolved films are skipped and reported, never guessed.
     new_state: dict[int, dict] = {}
-
+    overrides = _identity_overrides(gc, sheet_id)
+    state_list = list(state_by_tmdb.values())
+    resolved: list[tuple[dict, "identity_mod.Identity"]] = []
     for entry in daily:
-        bom_title = entry["title"]
         days = int(entry.get("days_in_release") or 0)
-        gross_today = int(entry.get("gross_to_date") or 0)
-        distributor = entry.get("distributor", "")
-
-        if gross_today < config.ACTIVE_FLOOR_USD:
+        if int(entry.get("gross_to_date") or 0) < config.ACTIVE_FLOOR_USD:
             continue
         if days > config.MAX_DAYS_IN_RELEASE:
             continue
+        slug, slug_year = identity_mod.parse_slug(f"/movie/{entry['tn_slug']}" if entry.get("tn_slug") else "")
+        chart_entry = identity_mod.ChartEntry(entry["title"], slug, slug_year, days, bom_date_used)
+        ident = identity_mod.resolve(chart_entry, state_list, overrides, search_movie, get_movie_details,
+                                     get_release_dates)
+        resolved.append((entry, ident))
+    identity_mod.dedupe([i for _, i in resolved])
+    runtime.note("identity", [i.report() for _, i in resolved])
+    unresolved = [i for _, i in resolved if i.status == "unresolved"]
+    identity_warning = None
+    if unresolved:
+        names = ", ".join(f"{i.title} ({i.reason.split(':')[0]})" for i in unresolved[:5])
+        more = f" and {len(unresolved) - 5} more" if len(unresolved) > 5 else ""
+        identity_warning = (f"⚠ Film identity unresolved — not tracked today: {names}{more}. "
+                            "Set its TMDB id in identity_overrides to include it.")
 
-        # Match to existing state row by normalized title
-        norm = normalize_title(bom_title)
-        matched_row = None
-        for row in state_by_tmdb.values():
-            if (normalize_title(row.get("bom_title_seen", "")) == norm
-                    or normalize_title(row.get("canonical_title", "")) == norm):
-                matched_row = row
-                break
+    consumed: set[int] = set()  # state rows continued (or re-keyed) by today's chart
+    for entry, ident in resolved:
+        bom_title = entry["title"]
+        days = int(entry.get("days_in_release") or 0)
+        gross_today = int(entry.get("gross_to_date") or 0)
+        if ident.status != "resolved":
+            logger.warning("Identity %s for '%s' (%s): %s", ident.status, bom_title, ident.tn_slug or "no slug", ident.reason)
+            continue
+        tmdb_id = int(ident.tmdb_id)
+        prior = ident.state_row
+        if prior is not None:
+            consumed.add(int(prior["tmdb_id"]))
+        identity_cols = {"tn_slug": ident.tn_slug or (prior or {}).get("tn_slug", ""),
+                         "identity_confidence": ident.confidence, "identity_method": ident.method}
 
-        if matched_row:
-            tmdb_id = int(matched_row["tmdb_id"])
-            row = dict(matched_row)
+        if prior is not None and int(prior["tmdb_id"]) == tmdb_id:
+            row = dict(prior)
             prior_dom = int(row.get("domestic_today") or 0)
             prior_stale = int(row.get("dom_stale_days") or 0)
             # Cumulative gross must never decrease vs the prior run — a lower
@@ -335,43 +382,41 @@ def _run(ctx, run_date=None):
             row["last_seen"] = str(today)
             row["status"] = "active"
             row["bom_title_seen"] = bom_title
+            row.update(identity_cols)
         else:
-            logger.info("New film: '%s' — resolving via TMDB", bom_title)
-            tmdb_match = resolve_tmdb_id(bom_title)
-            if not tmdb_match:
-                logger.warning("Could not resolve TMDB for '%s', skipping", bom_title)
-                continue
-            tmdb_id = tmdb_match["id"]
-            try:
-                details = get_movie_details(tmdb_id)
-            except Exception as exc:
-                logger.warning("TMDB details failed for tmdb_id=%s: %s", tmdb_id, exc)
-                details = {"tmdb_id": tmdb_id, "imdb_id": "", "title": bom_title, "release_date": "", "release_year": ""}
+            details = ident.details or {}
+            if prior is not None:
+                # Re-key by an editor override: the chart's domestic history is
+                # this film's; worldwide came from the old (wrong) IMDb ID.
+                logger.info("'%s': identity override %s -> %s", bom_title, prior["tmdb_id"], tmdb_id)
+            else:
+                logger.info("New film: '%s' -> TMDB %s (%s, %s)", bom_title, tmdb_id, ident.method, ident.confidence)
             row = {
                 "tmdb_id": tmdb_id,
                 "imdb_id": details.get("imdb_id", ""),
                 "canonical_title": details.get("title", bom_title),
                 "bom_title_seen": bom_title,
                 "release_date": details.get("release_date", "") or details.get("release_year", ""),
-                "first_seen": str(today),
+                "first_seen": (prior or {}).get("first_seen") or str(today),
                 "last_seen": str(today),
                 "status": "active",
-                "domestic_yesterday": 0,
-                "domestic_today": gross_today,
+                "domestic_yesterday": int((prior or {}).get("domestic_today") or 0),
+                "domestic_today": max(gross_today, int((prior or {}).get("domestic_today") or 0)),
                 "worldwide_yesterday": 0,
                 "worldwide_today": 0,
                 "days_in_release": days,
-                "tmdb_id_override": "",
-                "notes": "",
+                "tmdb_id_override": (prior or {}).get("tmdb_id_override", ""),
+                "notes": (prior or {}).get("notes", ""),
                 "dom_stale_days": 0,
                 "ww_stale_days": 0,
+                **identity_cols,
             }
 
         new_state[tmdb_id] = row
 
     # Films in old state but not seen today: mark retired if movement stalled
     for tmdb_id, row in state_by_tmdb.items():
-        if tmdb_id in new_state:
+        if tmdb_id in new_state or tmdb_id in consumed:
             continue
         row = dict(row)
         dom_today = int(row.get("domestic_today") or 0)
@@ -582,9 +627,10 @@ def _run(ctx, run_date=None):
 
     # Step 11b: Validate every bound pick's words against its evidence: declared
     # claims, rank/superlative/tense/genre/third-film scan, every dollar figure,
-    # and the 85-character headline (one shortening attempt, never truncated).
+    # and the 85-character headline (one shortening attempt, re-validated and
+    # checked for unchanged meaning, never truncated).
     from faramir.claude_select import shorten_headline
-    from faramir.validate import HEADLINE_MAX, title_lexicon, validate_pick
+    from faramir.validate import HEADLINE_MAX, meaning_changes, title_lexicon, validate_pick
 
     lexicon = title_lexicon(corpus, active_films_payload)
     validated_picks, validation_log = [], []
@@ -597,6 +643,7 @@ def _run(ctx, run_date=None):
             if new_headline:
                 retry = dict(pick, headline=new_headline)
                 result = validate_pick(retry, lexicon)
+                result.reasons += meaning_changes(pick, new_headline)  # same films, direction, status, figures
                 entry.update(headline_after=new_headline, reasons_after=result.reasons)
                 if result.ok:
                     pick = retry
@@ -707,9 +754,9 @@ def _run(ctx, run_date=None):
     if post_hdr:
         if slack_target:
             post_header_message(slack_bot_token, slack_channel_id, len(deliveries), len(enriched_active), today,
-                                warning=_join_warnings(corpus_load.editor_warning(), selection_warning))
+                                warning=_join_warnings(corpus_load.editor_warning(), identity_warning, selection_warning))
         else:
-            post_header(slack_url, len(deliveries), len(enriched_active), today, warning=_join_warnings(corpus_load.editor_warning(), selection_warning))
+            post_header(slack_url, len(deliveries), len(enriched_active), today, warning=_join_warnings(corpus_load.editor_warning(), identity_warning, selection_warning))
 
     outcomes = []
     if deliveries and slack_target:

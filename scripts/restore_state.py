@@ -27,6 +27,7 @@ from faramir import sheet as sheet_module  # noqa: E402
 from faramir.sheet import STATE_HEADERS, read_values, write_values  # noqa: E402
 from faramir.state_integrity import (  # noqa: E402
     LKG_TAB, META_TAB, STATE_TAB, checksum, merge_editor_values, meta_values, parse_meta, row_problems, split,
+    upgrade_rows,
 )
 from faramir.state_store import StateConflict, StateStore  # noqa: E402
 
@@ -46,6 +47,8 @@ def plan(gc, sheet_id, source, path, editor_values) -> dict:
     header, rows = load_source(gc, sheet_id, source, path)
     expected = list(STATE_HEADERS)
     problems = row_problems(header, rows, expected)
+    if not problems:
+        rows = upgrade_rows(header, rows, expected)  # a legacy-layout source is restored on the current header
     live = read_values(gc, sheet_id, STATE_TAB)
     _, live_rows = split(live)
     if editor_values == "current" and not problems:

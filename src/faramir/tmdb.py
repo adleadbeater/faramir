@@ -54,7 +54,22 @@ def find_by_imdb(imdb_id: str) -> list[dict]:
     return data.get("movie_results", [])
 
 
+def search_movie(title: str, year: int | None = None) -> list[dict]:
+    """/search/movie results (first page). Choosing among them is faramir.identity's job."""
+    params = {"api_key": _api_key(), "query": title, "include_adult": "false"}
+    if year:
+        params["year"] = year
+    return _get_json_with_retry("/search/movie", params).get("results", [])
+
+
+def get_release_dates(tmdb_id: int) -> dict:
+    """/movie/{id}/release_dates (per-country release dates and types)."""
+    return _get_json_with_retry(f"/movie/{tmdb_id}/release_dates", {"api_key": _api_key()})
+
+
 def resolve_tmdb_id(title: str, year: int | None = None) -> dict | None:
+    """Legacy popularity-based title search. No longer used for active films
+    (title alone is not identity); kept for scripts that predate Increment 9."""
     """Search /search/movie and return best match dict or None."""
     params = {"api_key": _api_key(), "query": title}
     if year:
@@ -75,14 +90,7 @@ def resolve_tmdb_id(title: str, year: int | None = None) -> dict | None:
 
 def get_movie_details(tmdb_id: int) -> dict:
     """Fetch /movie/{id} + credits, return normalized dict."""
-    key = _api_key()
-    movie_resp = requests.get(
-        f"{TMDB_BASE}/movie/{tmdb_id}",
-        params={"api_key": key, "append_to_response": "credits"},
-        timeout=TIMEOUT,
-    )
-    movie_resp.raise_for_status()
-    data = movie_resp.json()
+    data = _get_json_with_retry(f"/movie/{tmdb_id}", {"api_key": _api_key(), "append_to_response": "credits"})
 
     crew = data.get("credits", {}).get("crew", [])
     cast = data.get("credits", {}).get("cast", [])

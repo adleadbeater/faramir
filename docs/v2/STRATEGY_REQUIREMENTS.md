@@ -1,0 +1,10 @@
+# Requirements carried into the Faramir 2.0 strategy engine
+
+Recorded during Phase 0 review. Phase 0 keeps these claims blocked; the strategy engine (Phase 1+) must deliver them **with evidence**, not by loosening the Phase 0 validator.
+
+| # | Requirement | Recorded |
+|---|---|---|
+| SR-1 | **Rankings, records, historical achievements and time-based headlines must become possible.** Faramir 2.0 needs legitimate claims such as "4th-Biggest Horror Opening", "First Film Since 2019 to…", "Biggest Second Weekend of the Year". Each needs a ranked-evidence source (e.g. weekend history, genre rankings) and a claim type that validation can check against that evidence. Until then the `rank`, `record`, `superlative`, `chart_position`, `first_or_only` and `count` claim types and their lexical patterns stay blocked. | Increment 8 review |
+| SR-2 | **The validator must distinguish unsupported claims from ordinary language.** "In its first weekend", "only two weeks in", "only $3M away", "ever since", "most of its gross", "leading man", "at first" are ordinary language and pass. `tests/test_validation.py::LEGITIMATE` is a regression suite: any change that rejects one of these phrases makes the title engine too restrictive and must not merge. New legitimate phrasings found in the PR-12 replay are added to it. | Increment 8 review |
+| SR-3 | **Genre descriptors must be attributed to the right film,** not rejected because the genre belongs to the comparison film. Phase 0 attributes lexically (title adjacency, apposition, verb side; see `validate.genre_checks`). Proposed for a later prompt change (needs approval): a `genre_descriptor` claim states the film it describes via `comp_tmdb_id` (null = active film), so the declared claim is attributed too, not only the wording. | Increment 8 review |
+| SR-4 | **Rewrites never change meaning.** Any automated rewrite (shortening today; style or reframing later) keeps the same films, the same film doing the passing, the same milestone status and the same figures, and is re-validated in full (`validate.meaning_changes`). | Increment 8 review |

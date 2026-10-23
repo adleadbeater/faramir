@@ -29,7 +29,12 @@ STATE_HEADERS = [
     "notes",
     "dom_stale_days",
     "ww_stale_days",
+    # Increment 9: active-film identity (appended; a 17-column legacy tab is upgraded on write)
+    "tn_slug",
+    "identity_confidence",
+    "identity_method",
 ]
+LEGACY_STATE_HEADERS = STATE_HEADERS[:17]
 
 SUGGESTIONS_HEADERS = [
     "run_date",

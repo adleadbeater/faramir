@@ -30,6 +30,9 @@ GROSS_PAIRS = (("domestic_yesterday", "domestic_today"), ("worldwide_yesterday",
 INT_COLUMNS = ("domestic_yesterday", "domestic_today", "worldwide_yesterday", "worldwide_today",
                "days_in_release", "dom_stale_days", "ww_stale_days")
 STATUSES = {"active", "retired"}
+# Header widths of earlier state layouts that are still valid: their columns are a prefix of the
+# current header (Increment 9 appended tn_slug, identity_confidence, identity_method to 17 columns).
+LEGACY_HEADER_WIDTHS = (17,)
 
 # Decision actions
 PROCEED = "PROCEED"
@@ -87,9 +90,23 @@ def row_values(header: list[str], rows: list[dict]) -> list[list[str]]:
     return [[_cell(r.get(h, "")) for h in header] for r in rows]
 
 
+def header_accepted(header: list[str], expected_header: list[str]) -> bool:
+    """The current header, or a legacy layout whose columns are an exact prefix of it."""
+    return header == expected_header or (
+        len(header) in LEGACY_HEADER_WIDTHS and expected_header[:len(header)] == header)
+
+
+def upgrade_rows(header: list[str], rows: list[list[str]], expected_header: list[str]) -> list[list[str]]:
+    """Rows of an accepted (possibly legacy) header, laid out on the current header: appended
+    columns are blank. Identical content, so editor merges and checksums stay meaningful."""
+    if not header_accepted(header, expected_header):
+        raise ValueError(f"cannot upgrade header {header}")
+    return [list(r) + [""] * (len(expected_header) - len(header)) for r in rows]
+
+
 def row_problems(header: list[str], rows: list[list[str]], expected_header: list[str]) -> list[str]:
     problems = []
-    if header != expected_header:
+    if not header_accepted(header, expected_header):
         return [f"header mismatch: {header} != expected {expected_header}"]
     col = {h: i for i, h in enumerate(header)}
     seen: set[str] = set()
@@ -214,7 +231,7 @@ def decide(state_values, lkg_values, meta: dict[str, dict] | None, expected_head
 
     if status in ("writing", "restoring"):
         header, rows = split(state_values)
-        rows_ok = header == expected_header and not row_problems(header, rows, expected_header)
+        rows_ok = header_accepted(header, expected_header) and not row_problems(header, rows, expected_header)
         if status == "writing" and rows_ok and checksum(header, rows) == st_meta.get("checksum") \
                 and str(len(rows)) == str(st_meta.get("row_count")):
             return Decision(ROLL_FORWARD, f"write of generation {st_meta.get('generation')} completed but was not confirmed", state, lkg, meta)

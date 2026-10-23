@@ -11,15 +11,20 @@ length, given one regeneration attempt by the caller).
    required.
 2. Lexical scan of headline + angle (with the active and comparison titles
    masked out), independent of the declared claims:
-   * rank/record/superlative language;
+   * rank/record/superlative language — context-aware: "in its first weekend",
+     "only $3M away", "ever since", "most of its gross" are ordinary language;
    * completed wording on an anticipated event, or vice versa;
-   * a genre descriptor that neither film has;
+   * the comparison named as the film doing the passing (direction reversed);
+   * a genre descriptor attributed to a film that does not have that genre;
    * another film's title (from the corpus / today's payload).
 3. Every dollar figure must match a reported evidence value — active film's
    current gross, comparison's reported gross, threshold, or the gap between
    them — within the precision the text implies. A missing gross is never a
    valid source.
 4. Headline length <= 85 characters (counted exactly; never truncated).
+5. A shortened headline must keep the original's meaning (``meaning_changes``):
+   the same bound films, the same film doing the passing, the same
+   completed/anticipated status and the same figures.
 """
 
 from __future__ import annotations
@@ -33,10 +38,26 @@ MONEY_RE = re.compile(
     r"\$\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(billion|million|thousand|bn|b|m|k)?(?![\w])", re.I)
 UNIT = {"billion": 1e9, "bn": 1e9, "b": 1e9, "million": 1e6, "m": 1e6, "thousand": 1e3, "k": 1e3, "": 1.0}
 
+TIME_UNIT = r"(?:weekends?|weeks?|days?|frames?|months?|years?|outings?|sessions?)"
+NUMBER_WORD = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|a few|a couple of|a handful of)"
+ORDINAL = r"\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth"
+# Always a rank/record/superlative claim.
 SUPERLATIVE_RE = re.compile(
-    r"(?<![\w-])(no\.\s?\d+|#\s?\d+|number one|\d+(?:st|nd|rd|th)|biggest|largest|highest(?:-grossing)?|"
-    r"top[- ]\d+|top-grossing|records?|record-breaking|all-time|ever|best|most|first|only|leading|dethron\w*)(?![\w])",
-    re.I)
+    r"(?<![\w-])(no\.\s?\d+|#\s?\d+|number one|biggest|largest|highest(?:-grossing)?|top[- ]\d+|top-grossing|"
+    r"records?|record-breaking|all-time|best|dethron\w*|unprecedented|history-making)(?![\w])", re.I)
+# A claim unless the surrounding words make it ordinary language. (word pattern, allowed-context pattern
+# matched at the word's start). Faramir 2.0 strategies will need real rankings/records/firsts; those come
+# with ranked evidence, not by loosening these rules (docs/v2/STRATEGY_REQUIREMENTS.md, SR-1).
+CONTEXTUAL = [
+    (rf"(?:{ORDINAL})", rf"(?:{ORDINAL})[\s-]+(?:{TIME_UNIT})(?![\w-])|first\s+(?:look|trailer|reviews?|reactions?)\b"),
+    (r"at first", r"at first"),
+    (r"only", rf"only\s+(?:\$|{NUMBER_WORD}\s+(?:more\s+)?{TIME_UNIT}\b|slightly\b|just\b|barely\b|a fraction\b)"),
+    (r"ever", r"ever(?:\s+since\b|-\w)"),
+    (r"most", r"most\s+of\b"),
+    (r"leading", r"leading\s+(?:man|men|lady|ladies|role|roles|actor|actors|actress|star|stars)\b"),
+]
+_NOT_ONLY = re.compile(r"\bnot\s+$", re.I)
+_AT_MOST = re.compile(r"\b(?:at|for the)\s+$", re.I)
 COMPLETED_RE = re.compile(
     # Inflected forms only: "is about to pass" must not count as completed wording.
     r"(?<![\w-])(pass(?:es|ed)|surpass(?:es|ed)|tops|topped|beat|beats|beaten|overtakes|overtook|overtaken|"
@@ -55,13 +76,21 @@ GENRE_WORDS = {
 }
 GENRE_RE = re.compile(
     r"(?<![\w-])(" + "|".join(sorted((re.escape(g) for g in GENRE_WORDS), key=len, reverse=True)) +
-    r")\s+(?:movie|movies|film|films|flick|hit|hits|sequel|franchise|title|blockbuster|release)s?(?![\w])", re.I)
+    r")\s+(?:movie|film|flick|hit|sequel|franchise|title|blockbuster|release|classic|favorite|epic|entry|entries|"
+    r"picture|feature|smash|juggernaut)s?(?![\w])", re.I)
 RELATION_CATEGORY = {
     "franchise": {"franchise_sibling"},
     "same_director": {"creative_head_to_head_director"},
     "same_star": {"creative_head_to_head_cast"},
 }
 NEVER_SUPPORTED = {"rank", "record", "superlative", "chart_position", "first_or_only", "count"}
+COMPARE_VERB_RE = re.compile(
+    r"(?<![\w-])(pass(?:es|ed)?|surpass(?:es|ed)?|tops|topped|beat|beats|beaten|overtakes?|overtook|overtaken|"
+    r"outgross(?:es|ed)?|eclips(?:es|ed)|outdid|outdoes|zooms past|blows past|moves past|nears?|nearing|"
+    r"closing in on|closes in on|approach(?:es|ing)?|chas(?:es|ing)|eyes|eyeing|catches|caught)(?![\w])", re.I)
+PASSIVE_AFTER_RE = re.compile(r"\s+by\b", re.I)
+PASSIVE_BEFORE_RE = re.compile(r"\b(?:is|was|been|being|gets|got)\s+(?:\w+\s+)?$", re.I)
+FALLS_RE = re.compile(r"(?<![\w-])(?:falls?|fell|slips?|slipped|trails?|trailing)\s+(?:to|behind)\b", re.I)
 
 
 @dataclass
@@ -127,10 +156,57 @@ def evidence_values(ev: dict) -> list[float]:
     return vals
 
 
+def title_variants(title: str) -> list[str]:
+    """The full title plus a distinctive short form ("Mission: Impossible – Ghost Protocol" ->
+    "Ghost Protocol", "Mission: Impossible") — what a shortened headline may use."""
+    title = (title or "").strip()
+    if not title:
+        return []
+    out = [title]
+    for part in re.split(r"\s*[:–—]\s*|\s+-\s+", title):
+        part = part.strip()
+        if part and part != title and (len(part.split()) >= 2 or len(part) >= 7):
+            out.append(part)
+    return out
+
+
 def _mask(text: str, titles: list[str]) -> str:
+    """Blank out titles with same-length filler, so positions still line up with the raw text."""
     for t in sorted((t for t in titles if t), key=len, reverse=True):
-        text = re.sub(re.escape(t), " ", text, flags=re.I)
+        text = re.sub(re.escape(t), lambda m: "\u00b7" * len(m.group(0)), text, flags=re.I)
     return text
+
+
+def _spans(text: str, films: dict[str, list[str]]) -> list[tuple[int, int, str]]:
+    """[(start, end, film key)] for every non-overlapping mention, longest variant first."""
+    taken, out = [], []
+    variants = sorted(((v, k) for k, vs in films.items() for v in vs if v), key=lambda x: len(x[0]), reverse=True)
+    for v, k in variants:
+        for m in re.finditer(rf"(?<![\w]){re.escape(v)}(?![\w])", text, re.I):
+            if not any(m.start() < e and s < m.end() for s, e in taken):
+                taken.append((m.start(), m.end()))
+                out.append((m.start(), m.end(), k))
+    return sorted(out)
+
+
+def _sentences(text: str) -> list[tuple[int, int]]:
+    bounds, start = [], 0
+    for m in re.finditer(r"[.!?]\s+|\n", text):
+        bounds.append((start, m.start()))
+        start = m.end()
+    bounds.append((start, len(text)))
+    return bounds
+
+
+def _films(pick: dict) -> dict[str, list[str]]:
+    ev = pick["evidence"]
+    comp = ev.get("comp") or {}
+    active_titles = {(ev.get("active") or {}).get("title") or "", pick.get("active_title") or ""}
+    comp_titles = {comp.get("title") or "", pick.get("comp_title") or ""}
+    films = {"active": [v for t in active_titles for v in title_variants(t)]}
+    if ev.get("comp"):
+        films["comp"] = [v for t in comp_titles for v in title_variants(t)]
+    return films
 
 
 def _completed_event(ev: dict) -> bool:
@@ -182,30 +258,118 @@ def check_claims(pick: dict) -> list[str]:
     return reasons
 
 
-def lexical_checks(pick: dict, other_titles: list[str]) -> list[str]:
-    ev = pick["evidence"]
-    comp = ev.get("comp") or {}
-    own = [(ev.get("active") or {}).get("title") or "", pick.get("active_title") or "",
-           comp.get("title") or "", pick.get("comp_title") or ""]
-    raw = f"{pick.get('headline', '')}\n{pick.get('angle', '')}"
-    text = _mask(raw, own)
-    reasons = []
+def _superlatives(text: str, comp: dict) -> list[str]:
     for m in SUPERLATIVE_RE.finditer(text):
         word = m.group(1)
         if word.lower() == "best" and re.match(r"best\s+picture", text[m.start():], re.I) and comp.get("is_best_picture"):
             continue
-        reasons.append(f"lexical_superlative: {word!r}")
-        break
+        return [f"lexical_superlative: {word!r}"]
+    for word_re, allowed in CONTEXTUAL:
+        for m in re.finditer(rf"(?<![\w-])({word_re})(?![\w])", text, re.I):
+            rest, before = text[m.start():], text[:m.start()]
+            if re.match(allowed, rest, re.I):
+                continue
+            w = m.group(1).lower()
+            if (w == "only" and _NOT_ONLY.search(before)) or (w == "most" and _AT_MOST.search(before)):
+                continue
+            if w == "first" and re.search(r"\bat\s+$", before, re.I):
+                continue
+            return [f"lexical_superlative: {m.group(1)!r}"]
+    return []
+
+
+def _tense(text: str) -> str:
     completed, anticipated = bool(COMPLETED_RE.search(text)), bool(ANTICIPATED_RE.search(text))
+    if completed and not anticipated:
+        return "completed"
+    if anticipated and not completed:
+        return "anticipated"
+    return "mixed" if completed else "none"
+
+
+def direction_checks(raw: str, films: dict[str, list[str]]) -> list[str]:
+    """The film right before the first comparison verb of a sentence is the one doing the passing;
+    it must be the active film (passive "is passed by" / "falls behind" inverts the roles)."""
+    if "comp" not in films:
+        return []
+    spans = _spans(raw, films)
+    for s0, s1 in _sentences(raw):
+        sentence = raw[s0:s1]
+        verb = COMPARE_VERB_RE.search(sentence) or FALLS_RE.search(sentence)
+        if not verb:
+            continue
+        v0 = s0 + verb.start()
+        before = [k for a, b, k in spans if s0 <= a and b <= v0]
+        if not before:
+            continue
+        subject = before[-1]
+        passive = bool(FALLS_RE.match(sentence, verb.start())) or (
+            bool(PASSIVE_AFTER_RE.match(sentence, verb.end())) and bool(PASSIVE_BEFORE_RE.search(sentence[:verb.start()])))
+        passer = ("comp" if subject == "active" else "active") if passive else subject
+        if passer != "active":
+            return [f"direction_reversed: {sentence.strip()!r} has the comparison film passing the active film"]
+    return []
+
+
+def genre_checks(raw: str, masked: str, pick: dict, films: dict[str, list[str]]) -> list[str]:
+    """Attribute each genre descriptor to a film, then require that film to have the genre.
+
+    Attribution: a bound title right after the phrase ("the horror film Smile") or in apposition
+    right before it ("Smile, the horror hit"); otherwise, in a sentence with a comparison verb,
+    a phrase before the verb describes the subject and one after it the object (passive inverts);
+    with no such context it describes the active film. Milestones only have the active film.
+    """
+    ev = pick["evidence"]
+    genres = {"active": {g.lower() for g in ((ev.get("active") or {}).get("genres") or [])},
+              "comp": {g.lower() for g in ((ev.get("comp") or {}).get("genres") or [])}}
+    spans = _spans(raw, films)
+    reasons = []
+    for m in GENRE_RE.finditer(masked):
+        genre = GENRE_WORDS[m.group(1).lower()]
+        film = "active"
+        if "comp" in films:
+            s0, s1 = next((a, b) for a, b in _sentences(raw) if a <= m.start() <= b)
+            after = [k for a, b, k in spans if m.end() <= a <= m.end() + 2]
+            appos = [k for a, b, k in spans if s0 <= a and re.fullmatch(r",\s*(?:the|a|an)\s+", raw[b:m.start()] or "x", re.I)]
+            if after:
+                film = after[0]
+            elif appos:
+                film = appos[-1]
+            else:
+                sentence = raw[s0:s1]
+                verb = COMPARE_VERB_RE.search(sentence) or FALLS_RE.search(sentence)
+                if verb:
+                    passive = bool(FALLS_RE.match(sentence, verb.start())) or (
+                        bool(PASSIVE_AFTER_RE.match(sentence, verb.end()))
+                        and bool(PASSIVE_BEFORE_RE.search(sentence[:verb.start()])))
+                    object_side = m.start() >= s0 + verb.end()
+                    film = "comp" if object_side != passive else "active"
+        if genre in genres[film]:
+            continue
+        other = "comp" if film == "active" else "active"
+        if genre in genres.get(other, set()):
+            reasons.append(f"genre_misattributed: {m.group(0)!r} describes the {film} film; {genre} is the {other} film's genre")
+        else:
+            reasons.append(f"genre_unsupported: {m.group(0)!r} (films are {sorted(genres['active'] | genres['comp'])})")
+    return reasons
+
+
+def lexical_checks(pick: dict, other_titles: list[str]) -> list[str]:
+    ev = pick["evidence"]
+    comp = ev.get("comp") or {}
+    films = _films(pick)
+    own = [v for vs in films.values() for v in vs]
+    raw = f"{pick.get('headline', '')}\n{pick.get('angle', '')}"
+    text = _mask(raw, own)
+    reasons = _superlatives(text, comp)
+    tense = _tense(text)
     if _completed_event(ev):
-        if anticipated and not completed:
+        if tense == "anticipated":
             reasons.append("tense_mismatch: anticipatory wording for an event that already happened")
-    elif completed and not anticipated:
+    elif tense == "completed":
         reasons.append("tense_mismatch: completed wording for an event that has not happened yet")
-    genres = {g.lower() for g in ((ev.get("active") or {}).get("genres") or []) + (comp.get("genres") or [])}
-    for m in GENRE_RE.finditer(text):
-        if GENRE_WORDS[m.group(1).lower()] not in genres:
-            reasons.append(f"genre_unsupported: {m.group(0)!r} (films are {sorted(genres)})")
+    reasons += direction_checks(raw, films)
+    reasons += genre_checks(raw, text, pick, films)
     own_lower = [o.lower() for o in own if o]
     for t in other_titles:
         if not t or any(t.lower() in o for o in own_lower):
@@ -237,6 +401,38 @@ def figure_checks(pick: dict) -> list[str]:
 def length_check(pick: dict) -> list[str]:
     n = len(pick.get("headline") or "")
     return [f"headline_too_long: {n} > {HEADLINE_MAX} characters"] if n > HEADLINE_MAX else []
+
+
+def meaning_changes(pick: dict, new_headline: str) -> list[str]:
+    """What a shortened headline changed relative to the original. Empty = same meaning.
+
+    Same bound films named (a distinctive short form of a title counts), the same film doing the
+    passing, the same completed/anticipated wording, and the same dollar figures (each figure in
+    either headline must match one in the other within the coarser stated precision).
+    """
+    old = pick.get("headline") or ""
+    films = _films(pick)
+    reasons = []
+    named_old = {k for _, _, k in _spans(old, films)}
+    named_new = {k for _, _, k in _spans(new_headline, films)}
+    for k in sorted(named_old - named_new):
+        reasons.append(f"meaning_changed: the {k} film is no longer named")
+    own = [v for vs in films.values() for v in vs]
+    t_old, t_new = _tense(_mask(old, own)), _tense(_mask(new_headline, own))
+    if t_old != t_new:
+        reasons.append(f"meaning_changed: status wording went from {t_old} to {t_new}")
+    if not direction_checks(old, films) and direction_checks(new_headline, films):
+        reasons.append("meaning_changed: the comparison direction was reversed")
+    f_old, f_new = parse_money(old), parse_money(new_headline)
+    def covered(a, bs):
+        return any(abs(a[0] - b[0]) <= max(a[1], b[1]) + 1e-6 for b in bs)
+    for f in f_old:
+        if not covered(f, f_new):
+            reasons.append(f"meaning_changed: figure {f[2].strip()} was dropped or changed")
+    for f in f_new:
+        if not covered(f, f_old):
+            reasons.append(f"meaning_changed: figure {f[2].strip()} was added")
+    return reasons
 
 
 def validate_pick(pick: dict, other_titles: list[str]) -> Validation:
