@@ -641,6 +641,18 @@ def _run(ctx, run_date=None):
     active_films_payload = engine.payload_films
     runtime.note("strategy_engine", engine.summary())
 
+    # Phase 1b: weekend strategies (Takeover, Hold) on the latest completed weekend, from committed
+    # weekend history only. With collection off (PR-16) this records that there is no data.
+    from faramir.strategies import weekend_runner
+    from faramir.tn_chart import weekend_friday
+
+    latest_weekend = weekend_friday(today - timedelta(days=3)).isoformat()
+    try:
+        weekend_result = weekend_runner.run(gc, sheet_id, latest_weekend, ledger)
+    except Exception as exc:  # history unreadable: no weekend events, never a guess
+        weekend_result = weekend_runner.WeekendResult("history_unavailable", latest_weekend, detail=str(exc)[:200])
+    runtime.note("weekend_strategies", weekend_result.summary())
+
     # Step 11: Claude selection
     dow = today.weekday()
     picks_target = config.PICKS_TARGET.get(dow, 4)
