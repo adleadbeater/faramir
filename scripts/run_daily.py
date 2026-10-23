@@ -687,6 +687,16 @@ def _run(ctx, run_date=None):
         weekend_result = weekend_runner.WeekendResult("history_unavailable", latest_weekend, detail=str(exc)[:200])
     runtime.note("weekend_strategies", weekend_result.summary())
 
+    # Phase 3: Discovery over the same committed weekend history (off with collection, PR-16).
+    from faramir.discovery import runner as discovery_runner
+
+    try:
+        discovery_result = discovery_runner.run(gc, sheet_id, latest_weekend, ledger, weekend_result.events)
+    except Exception as exc:
+        discovery_result = discovery_runner.DiscoveryResult("history_unavailable", latest_weekend)
+        logger.warning("Discovery skipped: %s", exc)
+    runtime.note("discovery", discovery_result.summary())
+
     # Step 11: Claude selection
     dow = today.weekday()
     picks_target = config.PICKS_TARGET.get(dow, 4)

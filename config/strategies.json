@@ -1,26 +1,153 @@
 {
-  "version": "2026-10-23.p1",
-  "statuses": {
-    "live": "runs on data production already collects",
-    "history_required": "needs committed weekend history (collection off until the source-permission decision, PR-16)",
-    "synthetic_only": "implemented and tested on synthetic data; a required input is not collected",
-    "blocked_no_source": "no verified data source; interface only, disabled",
-    "blocked_permission": "a source exists but its use is not permitted yet"
+ "version": "2026-10-23.p3",
+ "statuses": {
+  "live": "runs on data production already collects",
+  "history_required": "needs committed weekend history (collection off until the source-permission decision, PR-16)",
+  "synthetic_only": "implemented and tested on synthetic data; a required input is not collected",
+  "blocked_no_source": "no verified data source; interface only, disabled",
+  "blocked_permission": "a source exists but its use is not permitted yet"
+ },
+ "strategies": {
+  "overtake": {
+   "number": 5,
+   "phase": "1",
+   "enabled": true,
+   "data_status": "live",
+   "sources": [
+    "tn_daily",
+    "bom_title",
+    "corpus_v2"
+   ]
   },
-  "strategies": {
-    "overtake":      {"number": 5,  "phase": "1",  "enabled": true,  "data_status": "live",              "sources": ["tn_daily", "bom_title", "corpus_v2"]},
-    "chase":         {"number": 4,  "phase": "1",  "enabled": true,  "data_status": "live",              "sources": ["tn_daily", "bom_title", "corpus_v2"]},
-    "countdown":     {"number": 8,  "phase": "1",  "enabled": true,  "data_status": "live",              "sources": ["tn_daily", "bom_title"]},
-    "takeover":      {"number": 1,  "phase": "1b", "enabled": true,  "data_status": "history_required",  "sources": ["tn_weekend_history"]},
-    "hold":          {"number": 2,  "phase": "1b", "enabled": true,  "data_status": "history_required",  "sources": ["tn_weekend_history"]},
-    "streak":        {"number": 3,  "phase": "5",  "enabled": false, "data_status": "history_required",  "sources": ["tn_weekend_history"]},
-    "legs":          {"number": 7,  "phase": "5",  "enabled": false, "data_status": "history_required",  "sources": ["tn_weekend_history"]},
-    "exit":          {"number": 6,  "phase": "5",  "enabled": false, "data_status": "history_required",  "sources": ["tn_weekend_history"]},
-    "premium_run":   {"number": 9,  "phase": "5",  "enabled": false, "data_status": "blocked_no_source", "sources": []},
-    "studio_battle": {"number": 10, "phase": "5",  "enabled": false, "data_status": "blocked_no_source", "sources": []},
-    "global_split":  {"number": 11, "phase": "5",  "enabled": false, "data_status": "synthetic_only",    "sources": ["bom_title", "corpus_v2"]},
-    "star_record":   {"number": 12, "phase": "5",  "enabled": false, "data_status": "synthetic_only",    "sources": ["corpus_v2", "tmdb"]},
-    "dark_horse":    {"number": 13, "phase": "5",  "enabled": false, "data_status": "history_required",  "sources": ["tn_weekend_history", "tmdb"]}
+  "chase": {
+   "number": 4,
+   "phase": "1",
+   "enabled": true,
+   "data_status": "live",
+   "sources": [
+    "tn_daily",
+    "bom_title",
+    "corpus_v2"
+   ]
   },
-  "discovery": {"phase": "3", "enabled": false, "data_status": "history_required", "sources": ["tn_weekend_history", "tn_daily"]}
+  "countdown": {
+   "number": 8,
+   "phase": "1",
+   "enabled": true,
+   "data_status": "live",
+   "sources": [
+    "tn_daily",
+    "bom_title"
+   ]
+  },
+  "takeover": {
+   "number": 1,
+   "phase": "1b",
+   "enabled": true,
+   "data_status": "history_required",
+   "sources": [
+    "tn_weekend_history"
+   ]
+  },
+  "hold": {
+   "number": 2,
+   "phase": "1b",
+   "enabled": true,
+   "data_status": "history_required",
+   "sources": [
+    "tn_weekend_history"
+   ]
+  },
+  "streak": {
+   "number": 3,
+   "phase": "5",
+   "enabled": false,
+   "data_status": "history_required",
+   "sources": [
+    "tn_weekend_history"
+   ]
+  },
+  "legs": {
+   "number": 7,
+   "phase": "5",
+   "enabled": false,
+   "data_status": "history_required",
+   "sources": [
+    "tn_weekend_history"
+   ]
+  },
+  "exit": {
+   "number": 6,
+   "phase": "5",
+   "enabled": false,
+   "data_status": "history_required",
+   "sources": [
+    "tn_weekend_history"
+   ]
+  },
+  "premium_run": {
+   "number": 9,
+   "phase": "5",
+   "enabled": false,
+   "data_status": "blocked_no_source",
+   "sources": []
+  },
+  "studio_battle": {
+   "number": 10,
+   "phase": "5",
+   "enabled": false,
+   "data_status": "blocked_no_source",
+   "sources": []
+  },
+  "global_split": {
+   "number": 11,
+   "phase": "5",
+   "enabled": false,
+   "data_status": "synthetic_only",
+   "sources": [
+    "bom_title",
+    "corpus_v2"
+   ]
+  },
+  "star_record": {
+   "number": 12,
+   "phase": "5",
+   "enabled": false,
+   "data_status": "synthetic_only",
+   "sources": [
+    "corpus_v2",
+    "tmdb"
+   ]
+  },
+  "dark_horse": {
+   "number": 13,
+   "phase": "5",
+   "enabled": false,
+   "data_status": "history_required",
+   "sources": [
+    "tn_weekend_history",
+    "tmdb"
+   ]
+  }
+ },
+ "discovery": {
+  "phase": "3",
+  "enabled": true,
+  "data_status": "history_required",
+  "sources": [
+   "tn_weekend_history"
+  ],
+  "generators": [
+   "comeback",
+   "rerelease_share",
+   "per_theater_outlier",
+   "weekend_change_zscore",
+   "expansion_surge",
+   "format_contrast"
+  ],
+  "not_built": {
+   "territory_breakout": "no territory data source"
+  },
+  "open_pass": "null (a Claude proposer is an interface; not wired: new paid calls not authorized)"
+ }
 }
