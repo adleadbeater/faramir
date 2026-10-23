@@ -13,6 +13,7 @@ from tests.fakes.fake_gspread import FakeClient
 from tests.fakes.fake_http import FakeHTTP, FakeResponse
 from tests.fakes.fake_slack import FakeSlack
 from tests.fakes.state_book import init_book, state_row
+from faramir.offline import event_claim
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -101,6 +102,7 @@ def pick_first_candidate(kwargs):
         "axis": c["axis"], "kind": c["kind"], "threshold_value": c["threshold_value"],
         "angle_category": (c["angle_categories"] or ["studio_sibling"])[0],
         "headline": f"Beta Story Moves Past {comp.get('title')}", "angle": "A steady run continues.",
+        "claims": [event_claim(c)],
     }]})
 
 
@@ -202,6 +204,8 @@ def test_pick_with_comp_outside_usable_corpus_is_dropped(env):
             "active_tmdb_id": film["tmdb_id"], "active_title": film["title"], "comp_tmdb_id": 987654321,
             "comp_title": "Not In Corpus", "axis": "domestic", "kind": "just_passed", "threshold_value": None,
             "angle_category": "unexpected_giant_killer", "headline": "Beta Story Passes Not In Corpus", "angle": "x",
+            "claims": [{"type": "passed_comp", "comp_tmdb_id": 987654321, "threshold": None, "axis": "domestic",
+                        "relation": None, "genre": None, "text": "passes Not In Corpus"}],
         }]})
 
     FakeAnthropic([invented]).install(env["monkeypatch"])

@@ -23,7 +23,7 @@ each active film has just passed (within last 3-4 days) or is about to pass (wit
 
 Your job is to pick the right number of comparisons (see picks_target, picks_min,
 picks_max in the payload) that will become MovieWeb articles. For each pick, write:
-  - A headline (declarative, news-style, max 75 chars)
+  - A headline (declarative, news-style, max 85 characters)
   - An angle (2-3 sentences on why this matters editorially)
 
 ## Selection rules
@@ -96,20 +96,17 @@ picks_max in the payload) that will become MovieWeb articles. For each pick, wri
   - Lead with the number: "$500M and Climbing: [Film] Nears a Major Milestone"
   - Lead with the franchise/talent angle: "[Director]'s Latest Just Outdid Their
     Own [Prior Film]"
-  - Lead with a superlative/rank: "[Film] Is Now the 4th-Biggest Horror Movie Ever"
   - Lead with the contrast for giant-killer stories (see below)
   - Frame as an ongoing story rather than a single crossing: "[Film]'s Box Office
     Run Keeps Getting Bigger"
   Treat "X beats/passes/surpasses Y" as one tool among several, not the default.
-- Max 90 characters.
-- Specific numbers when they're round or meaningful — "$500M", "$1 Billion", a
-  rank ("4th-Biggest Horror Ever").
+- Max 85 characters.
+- Specific numbers when they're round or meaningful — "$500M", "$1 Billion".
 - Name the franchise / star / director when there's a creative through-line.
 - For unexpected_giant_killer: lean into the contrast and name the iconic comp.
   "This Horror Film Just Quietly Passed Harry Potter and the Sorcerer's Stone".
   The comp's recognizability is the hook — use it.
-- For milestones: declarative — "[Film] Crosses $1 Billion Worldwide", and a
-  reason to read ("Becoming Only the X Movie This Year to Do So").
+- For milestones: declarative — "[Film] Crosses $1 Billion Worldwide".
 - No clickbait formulations: no "You Won't Believe", no "This One Stat",
   no ellipses for tease.
 - Title case. No emoji.
@@ -121,6 +118,25 @@ happened and why it's surprising or meaningful; one sentence on what comes next
 or what it says about the film's run. No filler, no hedging, no generic "this is
 a significant achievement." If you can't say something interesting in 2 sentences,
 the pick probably isn't strong enough.
+
+## Evidence rules (enforced in code — a pick that breaks one is dropped)
+
+- angle_category must be one of the chosen candidate's angle_categories
+  ("creative_head_to_head" may stand for creative_head_to_head_director or
+  creative_head_to_head_cast).
+- Only assert facts present in the candidate: the comparison or milestone it
+  passed or is approaching, the figures in the payload, and the relationships
+  its angle_categories show (franchise, same director, same star). A null value
+  is unavailable — never cite or estimate it.
+- No rankings, records or superlatives ("No. 1", "4th-biggest", "record",
+  "biggest ever", "highest-grossing", "first", "only"): nothing in the payload
+  supports them.
+- Every dollar figure must be one of the payload's figures, or the gap to the
+  comparison/threshold, at the precision you write it ("$1.67B", "$152M").
+- Completed wording ("passes", "crosses", "tops") only for just_passed and
+  milestones already crossed; anticipatory wording ("nears", "closing in on")
+  for about_to_pass.
+- List every factual assertion in the headline and angle in "claims".
 
 ## Output format
 
@@ -138,13 +154,23 @@ Your entire response must be valid JSON starting with { and ending with }. No ma
       "threshold_value": null,
       "angle_category": "franchise_sibling",
       "headline": "...",
-      "angle": "..."
+      "angle": "...",
+      "claims": [
+        {"type": "passed_comp", "comp_tmdb_id": 56292, "threshold": null, "axis": "domestic",
+         "relation": null, "genre": null, "text": "passes Ghost Protocol domestically"},
+        {"type": "relation", "comp_tmdb_id": 56292, "threshold": null, "axis": null,
+         "relation": "franchise", "genre": null, "text": "the franchise's earlier entry"}
+      ]
     }
   ]
 }
 
 comp_tmdb_id and comp_title are null for milestone picks.
-threshold_value is populated for milestone picks, null otherwise.\
+threshold_value is populated for milestone picks, null otherwise.
+Claim types: passed_comp, nearing_comp, crossed_milestone, nearing_milestone,
+relation (franchise | same_director | same_star), genre_descriptor (genre named),
+and — if you make one despite the rules — rank, record, superlative,
+chart_position, first_or_only, count.\
 """
 
 
@@ -330,3 +356,49 @@ def select(payload: dict) -> SelectionResult:
 def select_picks(payload: dict) -> list[dict]:
     """Back-compatible wrapper: picks on success, [] on any failure."""
     return select(payload).picks
+
+
+HEADLINE_REWRITE_PROMPT = """\
+You shorten MovieWeb headlines. Rewrite the given headline to at most {max_chars} characters.
+Keep exactly the same facts, the same named films and the same tense ("passes" stays completed,
+"nears" stays anticipatory). Do not add figures, rankings, records or superlatives. Title case,
+no emoji, no clickbait. Return JSON only: {{"headline": "..."}}"""
+
+
+def shorten_headline(pick: dict, max_chars: int) -> tuple[str | None, dict]:
+    """One structured call to shorten an over-length headline. (headline|None, record).
+
+    The result is re-validated by the caller; it is never truncated here.
+    """
+    from faramir.schemas import Headline, headline_format
+
+    record: dict = {"call": "shorten_headline", "original_length": len(pick.get("headline") or "")}
+    client = anthropic.Anthropic(timeout=config.SELECTION_TIMEOUT_S, max_retries=config.SELECTION_MAX_RETRIES)
+    try:
+        response = client.messages.create(
+            model=SELECTION_MODEL,
+            max_tokens=256,
+            system=HEADLINE_REWRITE_PROMPT.format(max_chars=max_chars),
+            messages=[{"role": "user", "content": json.dumps(
+                {"headline": pick.get("headline"), "angle": pick.get("angle"), "max_chars": max_chars})}],
+            output_config={"format": headline_format()},
+        )
+    except anthropic.APIError as exc:
+        record["error"] = f"{type(exc).__name__}"
+        return None, record
+    u = response.usage
+    buffer_usage(call_label="shorten_headline", input_tokens=u.input_tokens, output_tokens=u.output_tokens,
+                 cache_created=getattr(u, "cache_creation_input_tokens", 0) or 0,
+                 cache_read=getattr(u, "cache_read_input_tokens", 0) or 0, model=SELECTION_MODEL)
+    record["stop_reason"] = response.stop_reason
+    if response.stop_reason != "end_turn":
+        record["error"] = f"stop_reason {response.stop_reason}"
+        return None, record
+    text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "")
+    try:
+        headline = Headline.model_validate_json(text).headline.strip()
+    except pydantic.ValidationError:
+        record["error"] = "schema validation failed"
+        return None, record
+    record["new_length"] = len(headline)
+    return headline, record

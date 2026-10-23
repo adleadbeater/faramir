@@ -115,49 +115,50 @@ def test_find_all_candidates_identical_on_v1_and_v2_rows():
     assert r1 and _key(r1) == _key(r2)
 
 
-# ── interim figure guard in run_daily ───────────────────────────────────
+# ── figure checks (Increment 8: faramir.validate replaces the interim guard) ─
 
-def _run_daily():
-    spec = importlib.util.spec_from_file_location("run_daily", os.path.join(ROOT, "scripts", "run_daily.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+from faramir.validate import figure_checks  # noqa: E402
 
-
-V = _run_daily()._validate_pick_figures
 COMP_FULL = to_v2(make_corpus_film(domestic_lifetime=145_000_000, worldwide_lifetime=600_000_000))
 COMP_NO_DOM = to_v2(make_corpus_film(domestic_lifetime=0, worldwide_lifetime=340_000_000))
 
 
-def pick(axis="worldwide", headline="", angle="", kind="just_passed", **kw):
-    return dict(axis=axis, kind=kind, headline=headline, angle=angle, **kw)
+def pick(axis="worldwide", headline="", angle="", kind="just_passed", comp=COMP_NO_DOM, threshold=None, mtype=None):
+    evidence = {"event": {"axis": axis, "kind": kind, "milestone_type": mtype, "threshold": threshold},
+                "active": {k: ACTIVE.get(k) for k in ("domestic_today", "worldwide_today")},
+                "comp": comp}
+    return {"axis": axis, "kind": kind, "headline": headline, "angle": angle, "evidence": evidence}
 
 
 def test_axis_with_missing_comp_gross_is_dropped():
-    assert "domestic gross unavailable" in V(pick(axis="domestic"), COMP_NO_DOM, ACTIVE)
+    assert any("comp_metric_unavailable" in r for r in figure_checks(pick(axis="domestic")))
 
 
 def test_worldwide_pick_with_missing_domestic_and_traceable_figures_passes():
     p = pick(headline="Film Passes Classic Worldwide", angle="Now at $350M worldwide, past Classic's $340M.")
-    assert V(p, COMP_NO_DOM, ACTIVE) is None
+    assert figure_checks(p) == []
 
 
 def test_untraceable_figure_dropped_when_a_comp_gross_is_missing():
     # $210M could only be the comp's (unavailable) domestic gross from memory.
     p = pick(angle="Classic made $210M domestically and $340M worldwide.")
-    reason = V(p, COMP_NO_DOM, ACTIVE)
-    assert reason and "matches no reported figure" in reason and "domestic gross unavailable" in reason
+    (reason,) = figure_checks(p)
+    assert reason.startswith("unverified_figure: $210M")
 
 
-def test_existing_checks_unchanged_when_both_grosses_reported():
-    assert V(pick(angle="Now past $600M"), COMP_FULL, ACTIVE) is None
-    assert "block/prose disagreement" in V(pick(angle="Classic made $2 billion"), COMP_FULL, ACTIVE)
+def test_figures_checked_when_both_grosses_reported():
+    assert figure_checks(pick(angle="Now past $600M", comp=COMP_FULL)) == []
+    assert any("unverified_figure" in r for r in figure_checks(pick(angle="Classic made $2 billion", comp=COMP_FULL)))
     bad = to_v2(make_corpus_film(domestic_lifetime=300_000_000, worldwide_lifetime=200_000_000))
-    assert "partial-run" in V(pick(), bad, ACTIVE)
+    assert any("comp_partial_run" in r for r in figure_checks(pick(comp=bad)))
 
 
-def test_milestone_pick_without_comp_is_untouched():
-    assert V(pick(kind="milestone", angle="$1 billion"), None, ACTIVE) is None
+def test_milestone_figure_must_be_the_threshold():
+    # Before Increment 8 milestone prose was not checked at all.
+    ok = pick(kind="milestone", angle="$1 billion", comp=None, threshold=1_000_000_000, mtype="just_passed")
+    assert figure_checks(ok) == []
+    wrong = pick(kind="milestone", angle="$2 billion", comp=None, threshold=1_000_000_000, mtype="just_passed")
+    assert figure_checks(wrong)
 
 
 # ── Slack shows unavailable values as n/a, not zero or a dash ───────────

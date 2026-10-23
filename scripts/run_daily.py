@@ -19,103 +19,6 @@ logger = logging.getLogger("faramir.daily")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-_MONEY_RE = re.compile(r"\$([\d,]+(?:\.\d+)?)\s*(billion|million|bn|b|m)?\b", re.I)
-
-
-def _extract_money_values(text: str) -> list[float]:
-    """Extract dollar figures mentioned in free text, normalized to raw USD."""
-    values = []
-    for amount_str, unit in _MONEY_RE.findall(text or ""):
-        try:
-            amount = float(amount_str.replace(",", ""))
-        except ValueError:
-            continue
-        unit = (unit or "").lower()
-        if unit.startswith("b"):
-            amount *= 1_000_000_000
-        elif unit.startswith("m"):
-            amount *= 1_000_000
-        values.append(amount)
-    return values
-
-
-_FIGURE_TOLERANCE = 0.02
-
-
-def _as_positive_number(value) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None
-
-
-def _validate_pick_figures(pick: dict, comp_film: dict | None, active_film: dict | None = None) -> str | None:
-    """Cross-check the comp film's block figures for internal consistency and
-    against the prose Claude wrote. Returns a reason string if the pick should
-    be dropped, or None if it's fine.
-
-    Checks, all conservative:
-      1. Worldwide must be >= domestic for the comp film — a hard data-integrity
-         invariant. A violation means the corpus figure is wrong (e.g. a partial
-         theatrical run rather than a lifetime aggregate).
-      2. The comp's gross on the pick's axis must be reported; a comparison
-         against an unavailable figure is never verifiable.
-      3. If either comp gross is unavailable, every dollar figure in the prose
-         must match (within 2%) a reported figure — comp, active film or
-         threshold. A missing gross is never treated as zero.
-      4. Otherwise, if the prose cites a dollar figure far larger (>1.5x) than
-         both the comp's domestic and worldwide block figures, the block is very
-         likely reading a stale/partial number while Claude's prose reflects the
-         real (larger) lifetime gross from its training knowledge.
-    Checks 2–3 are an interim guard; Increment 8 replaces them with full
-    figure and claim validation.
-    """
-    from faramir.corpus import reported
-
-    if not comp_film:
-        return None
-
-    comp_dom = reported(comp_film, "domestic")
-    comp_ww = reported(comp_film, "worldwide")
-
-    if comp_ww is not None and comp_dom is not None and comp_ww < comp_dom:
-        return f"comp WW ({comp_ww}) < comp Dom ({comp_dom}) — partial-run data"
-
-    axis = pick.get("axis")
-    if axis in ("domestic", "worldwide") and reported(comp_film, axis) is None:
-        return f"comp {axis} gross unavailable — comparison not verifiable"
-
-    prose = f"{pick.get('headline', '')} {pick.get('angle', '')}"
-    mentioned = _extract_money_values(prose)
-    if mentioned and (comp_dom is None or comp_ww is None):
-        active = active_film or {}
-        known = [
-            n for n in (
-                comp_dom, comp_ww,
-                _as_positive_number(active.get("domestic_today")),
-                _as_positive_number(active.get("worldwide_today")),
-                _as_positive_number(pick.get("threshold_value")),
-            ) if n
-        ]
-        missing = "domestic" if comp_dom is None else "worldwide"
-        for value in mentioned:
-            if not any(abs(value - k) <= _FIGURE_TOLERANCE * k for k in known):
-                return (
-                    f"prose cites ${value:,.0f}, which matches no reported figure "
-                    f"(comp {missing} gross unavailable)"
-                )
-        return None
-    if mentioned:
-        max_mentioned = max(mentioned)
-        if max_mentioned > comp_ww * 1.5 and max_mentioned > comp_dom * 1.5:
-            return (
-                f"prose cites ${max_mentioned:,.0f} but comp block shows "
-                f"WW={comp_ww}, Dom={comp_dom} — block/prose disagreement"
-            )
-    return None
-
-
 def _suppressed_pairs(past_suggestions: list[dict], today, suppress_days: int) -> set[tuple]:
     """Pairs suggested within the suppression window (unchanged pre-v2 logic)."""
     suppress_cutoff = today - timedelta(days=suppress_days)
@@ -677,28 +580,36 @@ def _run(ctx, run_date=None):
     else:
         logger.warning("No candidates to send to Claude today")
 
-    # Step 11b: Validate comp-figure integrity before anything gets posted —
-    # drop picks that fail the WW>=Dom invariant or show a block/prose mismatch
-    # rather than shipping a pick a writer would copy the wrong number from.
-    corpus_by_tmdb = {f.get("tmdb_id"): f for f in corpus}
-    validated_picks = []
+    # Step 11b: Validate every bound pick's words against its evidence: declared
+    # claims, rank/superlative/tense/genre/third-film scan, every dollar figure,
+    # and the 85-character headline (one shortening attempt, never truncated).
+    from faramir.claude_select import shorten_headline
+    from faramir.validate import HEADLINE_MAX, title_lexicon, validate_pick
+
+    lexicon = title_lexicon(corpus, active_films_payload)
+    validated_picks, validation_log = [], []
     for pick in picks:
-        comp_tmdb = pick.get("comp_tmdb_id")
-        comp_film = corpus_by_tmdb.get(comp_tmdb) if comp_tmdb else None
-        if comp_tmdb and comp_film is None:
-            reason = "comp is not a usable corpus record (excluded, stale or unknown)"
-        else:
-            active_film = next((f for f in enriched_active if f.get("tmdb_id") == pick.get("active_tmdb_id")), None)
-            reason = _validate_pick_figures(pick, comp_film, active_film)
-        if reason:
-            logger.warning(
-                "Dropping pick '%s' vs '%s': %s",
-                pick.get("active_title", ""), pick.get("comp_title", ""), reason,
-            )
+        result = validate_pick(pick, lexicon)
+        entry = {"candidate_id": pick.get("candidate_id"), "headline": pick.get("headline"), "reasons": result.reasons}
+        if result.only_length:
+            new_headline, record = shorten_headline(pick, HEADLINE_MAX)
+            entry["shorten"] = record
+            if new_headline:
+                retry = dict(pick, headline=new_headline)
+                result = validate_pick(retry, lexicon)
+                entry.update(headline_after=new_headline, reasons_after=result.reasons)
+                if result.ok:
+                    pick = retry
+        entry["accepted"] = result.ok
+        validation_log.append(entry)
+        if not result.ok:
+            logger.warning("Dropping pick '%s': %s", pick.get("headline", ""), "; ".join(result.reasons))
             continue
         validated_picks.append(pick)
+    runtime.note("validation", validation_log)
     runtime.note("picks", {"returned": len(picks), "after_validation": len(validated_picks)})
     picks = validated_picks
+    corpus_by_tmdb = {f.get("tmdb_id"): f for f in corpus}
 
     # Step 12: Log -> post -> confirm. Every pick gets an immutable suggestion_id
     # and a delivery_state; nothing already logged is ever knowingly reposted.

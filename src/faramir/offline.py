@@ -209,10 +209,23 @@ class _Messages:
                 "axis": c["axis"], "kind": c["kind"], "threshold_value": c.get("threshold_value"),
                 "angle_category": (c.get("angle_categories") or ["round_number_milestone"])[0],
                 "headline": f"[OFFLINE FIXTURE] {film['title']} vs {comp.get('title') or 'milestone'}",
-                "angle": "Deterministic offline responder: first eligible candidate, no model call.",
+                "angle": "Deterministic offline responder: earliest-listed eligible candidate, no model call.",
+                "claims": [event_claim(c)],
             })
             break
         return _Message(json.dumps({"picks": picks}))
+
+
+def event_claim(c: dict) -> dict:
+    """The declared claim matching a candidate's event (used by scripted responders)."""
+    comp = c.get("comp") or {}
+    if c["kind"] == "milestone":
+        t = "crossed_milestone" if c.get("milestone_type") == "just_passed" else "nearing_milestone"
+        return {"type": t, "comp_tmdb_id": None, "threshold": c.get("threshold_value"), "axis": c["axis"],
+                "relation": None, "genre": None, "text": "milestone"}
+    t = "passed_comp" if c["kind"] == "just_passed" else "nearing_comp"
+    return {"type": t, "comp_tmdb_id": comp.get("tmdb_id"), "threshold": None, "axis": c["axis"],
+            "relation": None, "genre": None, "text": f"{c['kind']} {comp.get('title')}"}
 
 
 class _OfflineAnthropic:

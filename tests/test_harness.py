@@ -129,6 +129,8 @@ def _pick():
         "active_tmdb_id": 1, "active_title": "Alpha Film", "comp_tmdb_id": 9, "comp_title": "Classic",
         "axis": "domestic", "kind": "just_passed", "threshold_value": None,
         "angle_category": "franchise_sibling", "headline": "Alpha Film Passes Classic", "angle": "Angle text.",
+        "claims": [{"type": "passed_comp", "comp_tmdb_id": 9, "threshold": None, "axis": "domestic",
+                    "relation": None, "genre": None, "text": "passes Classic"}],
     }
 
 

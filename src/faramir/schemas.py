@@ -11,6 +11,25 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 
+ClaimType = Literal[
+    "passed_comp", "nearing_comp", "crossed_milestone", "nearing_milestone", "relation", "genre_descriptor",
+    # Declared so the model can report them honestly; validation rejects every one in Phase 0.
+    "rank", "record", "superlative", "chart_position", "first_or_only", "count",
+]
+
+
+class Claim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: ClaimType
+    comp_tmdb_id: int | None
+    threshold: int | None
+    axis: Literal["domestic", "worldwide"] | None
+    relation: Literal["franchise", "same_director", "same_star"] | None
+    genre: str | None
+    text: str
+
+
 class Pick(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -24,6 +43,7 @@ class Pick(BaseModel):
     angle_category: str
     headline: str
     angle: str
+    claims: list[Claim]
 
 
 class PickSet(BaseModel):
@@ -37,3 +57,17 @@ def output_format() -> dict:
     import anthropic
 
     return {"type": "json_schema", "schema": anthropic.transform_schema(PickSet)}
+
+
+class Headline(BaseModel):
+    """Structured output for the one-shot headline shortening call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    headline: str
+
+
+def headline_format() -> dict:
+    import anthropic
+
+    return {"type": "json_schema", "schema": anthropic.transform_schema(Headline)}

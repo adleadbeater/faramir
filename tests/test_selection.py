@@ -15,6 +15,8 @@ from tests.fakes.fake_anthropic import FakeAnthropic, FakeMessage, FakeTextBlock
 
 DATA_DATE = "2026-10-21"
 ORIGINAL_PROMPT_SHA256 = "0cc056f0bdbb4f63ff5396d41dab3acf48903ce36beb2f3b22e8767281b0060b"  # @ f2a0ce4
+# Increment 8: the approved prompt edits (85 chars, superlative examples removed, evidence rules, claims).
+APPROVED_PROMPT_SHA256 = "775de5f2716767678cc87b80f891cd8a391b6fe82f6ba8c90c230891b2b2c4d4"
 
 
 def comp(tmdb_id, title, dom, ww):
@@ -43,7 +45,9 @@ def films():
 def pick(**kw):
     p = {"active_tmdb_id": 1, "active_title": "Alpha Film", "comp_tmdb_id": 9, "comp_title": "Nine",
          "axis": "domestic", "kind": "just_passed", "threshold_value": None,
-         "angle_category": "franchise_sibling", "headline": "Alpha Film Passes Nine", "angle": "a"}
+         "angle_category": "franchise_sibling", "headline": "Alpha Film Passes Nine", "angle": "a",
+         "claims": [{"type": "passed_comp", "comp_tmdb_id": 9, "threshold": None, "axis": "domestic",
+                     "relation": None, "genre": None, "text": "passes Nine"}]}
     p.update(kw)
     return p
 
@@ -137,7 +141,7 @@ def test_request_uses_schema_model_limits_and_unchanged_prompt(monkeypatch):
     assert call["max_tokens"] == config.SELECTION_MAX_TOKENS
     assert call["output_config"]["format"]["type"] == "json_schema"
     assert call["output_config"]["format"]["schema"]["required"] == ["picks"]
-    assert hashlib.sha256(FARAMIR_SELECTION_PROMPT.encode()).hexdigest() == ORIGINAL_PROMPT_SHA256
+    assert hashlib.sha256(FARAMIR_SELECTION_PROMPT.encode()).hexdigest() == APPROVED_PROMPT_SHA256
     assert call["system"][0]["text"] == FARAMIR_SELECTION_PROMPT
     assert fake.client_kwargs == [{"timeout": config.SELECTION_TIMEOUT_S, "max_retries": config.SELECTION_MAX_RETRIES}]
 
