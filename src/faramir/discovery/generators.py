@@ -63,7 +63,7 @@ def rerelease_share(w: Weekend) -> list[DiscoveryItem]:
         "rerelease_share", w.weekend_start, None, None, "rerelease_share_pct", round(share, 1),
         {"threshold_pct": RERELEASE_SHARE_PCT, "rereleases": len(rr)},
         [_claim(w, None, "rerelease_share_pct", round(share, 1), 0.05)] + [_claim(w, r, "weekend_gross", r.gross) for r in rr],
-        f"Re-releases took {share:.1f}% of the weekend's chart gross ({len(rr)} titles; largest {top.title}, {money(top.gross)}).",
+        f"Re-releases took {share:.1f}% of the weekend's chart gross ({len(rr)} title{'s' if len(rr) != 1 else ''}; largest {top.title}, {money(top.gross)}).",
         f"Re-Releases Took {share:.0f}% of the Weekend Box Office", f"{top.title} Leads a Big Re-Release Weekend",
         ["rerelease", "catalog_demand"])]
 
