@@ -34,7 +34,8 @@ def line(e: Event, secondary: Event | None = None) -> str:
         body = f"{money(ev['gap'])} from {money(ev['target_value'])} {e.axis}; about {ev['days_to_cross']:.0f} days at {money(ev['pace_per_day'])}/day"
     else:
         body = e.reason
-    out = f"{LABEL[e.strategy]} · {body} · sources: {_src(e)}"
+    status = f" ({e.status})" if e.status in ("provisional", "unverifiable") else ""
+    out = f"{LABEL[e.strategy]}{status} · {body} · sources: {_src(e)}"
     if secondary:
         out += f" · also {LABEL[secondary.strategy]}"
     return out

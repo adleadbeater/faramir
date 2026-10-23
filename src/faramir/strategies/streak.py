@@ -59,13 +59,13 @@ def detect(series: list[Weekend | None]) -> DetectorResult:
             out.reject("streak", r.film(), "weekend", target, "not_a_noteworthy_extension",
                        f"{n} weekends (reported at {minimum}, then every {EXTENSION_STEP})")
             continue
-        label = "No. 1" if tier == 1 else f"the top {tier}"
+        label = "at No. 1" if tier == 1 else f"in the top {tier}"
         out.emit(Event(
             strategy="streak", film=film_ref(r.film()), period=cur.weekend_start, axis="weekend", target=target,
             status="confirmed",  # every counted weekend is a committed chart; a gap stops the count
             evidence={"tier": tier, "weekends": n, "minimum": minimum, "rank": r.source_rank, "weekend_gross": r.gross,
                       "weekends_checked": [w.weekend_start for w in series[-n:] if w is not None]},
-            sources=[w.source() for w in series[-n:] if w is not None][:3],
+            sources=[w.source() for w in reversed(series[-n:]) if w is not None],  # every weekend of the run, latest first
             reason=f"{r.title} has been {label} for {n} consecutive complete weekends (through {cur.weekend_start}).",
             reason_codes=[f"tier_top{tier}", f"weekends_{n}"], subtype=f"top{tier}",
             strength=round(min(1.0, 0.6 + (0.15 if tier == 1 else 0.05) + 0.03 * (n - minimum)), 3)))

@@ -33,7 +33,7 @@ Branch `v2/phase-5`, from `v2/phase-4`. Local only. Registry version `2026-10-23
 
 ## Tests
 
-**918 passed, 2 skipped.** `tests/test_strategies_p5.py` has 28 tests. Each strategy has positive and negative fixtures. They also cover:
+**920 passed, 2 skipped** (after the fixes below). `tests/test_strategies_p5.py` has 28 tests. Each strategy has positive and negative fixtures. They also cover:
 - overlap rules 3, 4 and 5;
 - career-wording validation;
 - the registry audit: 13 strategies, every disabled one with a reason, and every enabled one with its sources;
@@ -47,6 +47,12 @@ The Phase 1b hand-checked weekend set was updated: its fourth weekend now also y
 - calibration `pending`;
 - 1 validated pick;
 - **14 writes recorded, 0 performed**.
+
+**Code defects found while preparing the consolidated report, and fixed (`c5fc23d` and the follow-up commit), each with a regression test:**
+- `assignee()` read "assigned to @dana for tomorrow" as "dana for", because the case-insensitive flag let lowercase words count as surnames;
+- a single outcome produced a zero-width 80% interval; with no spread to borrow, the interval is now `None`;
+- the Streak rationale read "has been the top 3" and cited only its first three weekends; it now reads "in the top 3" and cites every weekend in the run, latest first;
+- a provisional event's rationale didn't say so; it now reads "Hold (provisional) · …". Provisional events are still never delivered.
 
 **Fixture defects found and fixed in this phase (the detectors were correct):**
 - the Legs fixtures used TN chart text `"(new)"` instead of the parsed status `"new"`;

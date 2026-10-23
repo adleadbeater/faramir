@@ -167,3 +167,15 @@ def test_weekend_events_are_ledgered(book, tmp_path):
     weekend_runner.run(book, "S", FRIDAYS[2].isoformat(), ledger=led, collection_enabled=True)
     (rec,) = led.read("events")
     assert rec["strategy"] == "takeover" and rec["disposition"] == "weekend_detected" and rec["sources"]
+
+
+def test_rationales_read_correctly_and_cite_every_weekend(book):
+    from faramir import rationale
+    r = weekend_runner.run(book, "S", FRIDAYS[3].isoformat(), collection_enabled=True)
+    (streak,) = [e for e in r.events if e.strategy == "streak"]
+    line = rationale.line(streak)
+    assert "in the top 3 for 4 consecutive" in line
+    assert [s.as_of for s in streak.sources] == [f.isoformat() for f in reversed(FRIDAYS[:4])]
+    r = weekend_runner.run(book, "S", FRIDAYS[4].isoformat(), collection_enabled=True)
+    (hold,) = [e for e in r.events if e.strategy == "hold"]
+    assert hold.status == "provisional" and rationale.line(hold).startswith("Hold (provisional) · ")
