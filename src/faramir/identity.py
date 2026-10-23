@@ -35,7 +35,11 @@ SLUG_YEAR_TOLERANCE = 1
 MAX_RELEASE_DATE_LOOKUPS = 3
 
 SLUG_RE = re.compile(r"/movie/([^/#?]+)")
-SLUG_YEAR_RE = re.compile(r"\((\d{4})(?:-[A-Za-z0-9]+)?\)$")
+# "(2026)", "(2014-Japan)", "(1971-United-Kingdom)": year, then an optional country/qualifier.
+SLUG_YEAR_RE = re.compile(r"\((\d{4})(?:-[A-Za-z0-9-]+)?\)$")
+# TN's "Days in Release" counts from a film's first US release, so a film still charting
+# more than this long after it is a revival / re-release engagement [CAL].
+REVIVAL_DAYS = 365
 
 
 def parse_slug(href: str | None) -> tuple[str, int | None]:
@@ -53,7 +57,31 @@ def implied_opening(chart_date: date, days_in_release: int) -> date | None:
 
 
 def is_rerelease(slug_year: int | None, chart_date: date) -> bool:
+    """The Phase 0 exclusion rule (P0-2): slug year more than one year before the chart year."""
     return slug_year is not None and slug_year < chart_date.year - 1
+
+
+def classify_engagement(slug_year: int | None, days_in_release: int | None, chart_end: date) -> str:
+    """What kind of theatrical engagement a chart row is.
+
+    * ``rerelease`` — still charting more than REVIVAL_DAYS after its first US release (TN's day
+      count runs from that first release; e.g. Avengers: Endgame at 2,733 days), or, with no day
+      count, an old slug year;
+    * ``late_release`` — an older film (slug year) in its first US run (e.g. a 2024 French film at
+      59 days);
+    * ``original`` — its first run, released around its slug year;
+    * ``unknown`` — not enough evidence.
+    """
+    if days_in_release:
+        if days_in_release > REVIVAL_DAYS:
+            return "rerelease"
+        if slug_year is None:
+            return "unknown"
+        opening = implied_opening(chart_end, days_in_release)
+        return "late_release" if slug_year < opening.year - 1 else "original"
+    if slug_year is None:
+        return "unknown"
+    return "rerelease" if is_rerelease(slug_year, chart_end) else "original"
 
 
 def _date(value) -> date | None:
@@ -104,11 +132,20 @@ class Identity:
     state_row: dict | None = None        # the existing state row this chart row continues
     details: dict | None = None          # TMDB details when a new row (or re-key) is needed
     considered: list[dict] = field(default_factory=list)
+    engagement: dict | None = None       # re-release evidence, kept for Discovery (never used for picks)
+
+    @property
+    def identity_class(self) -> str:
+        """verified (search) | manual (override) | legacy (pre-Increment-9 title+year) | unresolved | rerelease."""
+        if self.status != "resolved":
+            return self.status
+        return {"high": "verified", "medium": "verified", "manual": "manual"}.get(self.confidence, "legacy")
 
     def report(self) -> dict:
         return {"title": self.title, "tn_slug": self.tn_slug, "status": self.status, "tmdb_id": self.tmdb_id,
-                "method": self.method, "confidence": self.confidence, "reason": self.reason,
-                "state_tmdb_id": _int((self.state_row or {}).get("tmdb_id")), "considered": self.considered}
+                "method": self.method, "confidence": self.confidence, "identity_class": self.identity_class,
+                "reason": self.reason, "state_tmdb_id": _int((self.state_row or {}).get("tmdb_id")),
+                "engagement": self.engagement, "considered": self.considered}
 
 
 def _year_compatible(row: dict, entry: ChartEntry) -> tuple[bool, str]:
@@ -237,8 +274,15 @@ def resolve(entry: ChartEntry, state_rows: list[dict], overrides: dict[str, int]
             search: Callable[[str, int | None], list[dict]], details: Callable[[int], dict],
             release_dates: Callable[[int], dict]) -> Identity:
     if is_rerelease(entry.slug_year, entry.chart_date):
-        return Identity(entry.title, entry.tn_slug, "rerelease", reason=(
-            f"rerelease: slug year {entry.slug_year} is before {entry.chart_date.year - 1}; excluded from picks"))
+        kind = classify_engagement(entry.slug_year, entry.days_in_release, entry.chart_date)
+        what = "late US release of an older film" if kind == "late_release" else "re-release"
+        ident = Identity(entry.title, entry.tn_slug, "rerelease", reason=(
+            f"rerelease: slug year {entry.slug_year} is before {entry.chart_date.year - 1} ({what}); "
+            "excluded from Phase 0 picks"))
+        ident.engagement = {"kind": kind, "original_identity": entry.tn_slug, "slug_year": entry.slug_year,
+                            "days_in_release": entry.days_in_release or None,
+                            "first_us_release": entry.opening.isoformat() if entry.opening else None}
+        return ident
 
     row, how, considered = match_state_row(entry, state_rows)
     if how == "ambiguous_state":

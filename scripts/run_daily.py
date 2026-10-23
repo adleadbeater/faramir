@@ -311,7 +311,10 @@ def _run(ctx, run_date=None):
     if is_monday:
         iso = yesterday.isocalendar()
         weekend = fetch_weekend_list(iso.year, iso.week)
-        logger.info("Monday: fetched %d weekend entries", len(weekend))
+        # Not weekend data: the legacy fetch returns Sunday's daily chart (see its docstring).
+        logger.info("Monday: %d entries from the Sunday daily chart (legacy weekend fetch)", len(weekend))
+        runtime.note("monday_merge", {"source": "sunday_daily_chart_via_legacy_fetch_weekend_list",
+                                      "is_weekend_data": False, "entries": len(weekend)})
         # Merge weekend entries for any titles not already in daily
         daily_titles = {normalize_title(e["title"]) for e in daily}
         for w in weekend:
@@ -326,19 +329,26 @@ def _run(ctx, run_date=None):
     overrides = _identity_overrides(gc, sheet_id)
     state_list = list(state_by_tmdb.values())
     resolved: list[tuple[dict, "identity_mod.Identity"]] = []
+    long_running: list[dict] = []  # re-release evidence, report only (SR-5); never used for picks
     for entry in daily:
         days = int(entry.get("days_in_release") or 0)
+        slug, slug_year = identity_mod.parse_slug(f"/movie/{entry['tn_slug']}" if entry.get("tn_slug") else "")
+        if days > config.MAX_DAYS_IN_RELEASE:
+            kind = identity_mod.classify_engagement(slug_year, days, bom_date_used)
+            if kind == "rerelease":
+                long_running.append({"title": entry["title"], "tn_slug": slug, "slug_year": slug_year,
+                                     "days_in_release": days, "total_gross": entry.get("gross_to_date"),
+                                     "total_gross_scope": "all_engagements"})
+            continue
         if int(entry.get("gross_to_date") or 0) < config.ACTIVE_FLOOR_USD:
             continue
-        if days > config.MAX_DAYS_IN_RELEASE:
-            continue
-        slug, slug_year = identity_mod.parse_slug(f"/movie/{entry['tn_slug']}" if entry.get("tn_slug") else "")
         chart_entry = identity_mod.ChartEntry(entry["title"], slug, slug_year, days, bom_date_used)
         ident = identity_mod.resolve(chart_entry, state_list, overrides, search_movie, get_movie_details,
                                      get_release_dates)
         resolved.append((entry, ident))
     identity_mod.dedupe([i for _, i in resolved])
     runtime.note("identity", [i.report() for _, i in resolved])
+    runtime.note("rerelease_engagements", long_running)
     unresolved = [i for _, i in resolved if i.status == "unresolved"]
     identity_warning = None
     if unresolved:

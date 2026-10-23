@@ -1,0 +1,90 @@
+[
+  {
+    "kind": "chat.postMessage",
+    "channel": "COFFLINE",
+    "sent": false,
+    "blocks": [
+      {
+        "type": "header",
+        "text": {
+          "type": "plain_text",
+          "text": "🏹 Faramir Daily — Thursday, October 22, 2026"
+        }
+      },
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": "*1 editorial pick* across *1 active film* today."
+        }
+      },
+      {
+        "type": "context",
+        "elements": [
+          {
+            "type": "mrkdwn",
+            "text": "⚠ Film identity unresolved — not tracked today: Alpha Film (no_match). Set its TMDB id in identity_overrides to include it."
+          }
+        ]
+      },
+      {
+        "type": "context",
+        "elements": [
+          {
+            "type": "mrkdwn",
+            "text": "ref daily-header-2026-10-22"
+          }
+        ]
+      },
+      {
+        "type": "divider"
+      }
+    ]
+  },
+  {
+    "kind": "chat.postMessage",
+    "channel": "COFFLINE",
+    "sent": false,
+    "blocks": [
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": "*[OFFLINE FIXTURE] Beta Story vs Superman*"
+        }
+      },
+      {
+        "type": "section",
+        "fields": [
+          {
+            "type": "mrkdwn",
+            "text": "*Beta Story* (now)\nDom: $152.0M  ·  WW: $322.0M"
+          },
+          {
+            "type": "mrkdwn",
+            "text": "*Superman (1978)* (lifetime)\nDom: $134.5M  ·  WW: $300.5M"
+          }
+        ]
+      },
+      {
+        "type": "context",
+        "elements": [
+          {
+            "type": "mrkdwn",
+            "text": "Same Origin  ·  Just Passed  ·  Worldwide  ·  ref 9d8c8898f25da967"
+          }
+        ]
+      },
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": "_Deterministic offline responder: earliest-listed eligible candidate, no model call._"
+        }
+      },
+      {
+        "type": "divider"
+      }
+    ]
+  }
+]

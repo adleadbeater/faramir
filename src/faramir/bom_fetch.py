@@ -140,10 +140,13 @@ def fetch_daily_list(target_date: date) -> list[dict]:
 
 
 def fetch_weekend_list(year: int, week: int) -> list[dict]:
-    """Fetch weekend box office from The Numbers for the Sunday of the given ISO week.
+    """LEGACY — despite its name, this always returns the SUNDAY DAILY chart, never weekend data.
 
-    The Numbers weekend chart: https://www.the-numbers.com/box-office-chart/weekend/YYYY/MM/DD
-    where the date is the Sunday of the weekend.
+    It requests the Sunday-dated weekend URL, which The Numbers answers with 404 (weekend charts
+    are keyed by their Friday), and then falls back to ``fetch_daily_list(sunday)``. Production's
+    Monday merge uses it only to add titles missing from the daily list. Kept unchanged so
+    production collection does not change; real weekend parsing is ``faramir.tn_chart``
+    (Friday URL, no daily substitution) and collection is Increment 11, off by default.
     """
     try:
         import datetime
