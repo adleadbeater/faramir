@@ -231,6 +231,8 @@ def check_claims(pick: dict) -> list[str]:
     reasons, event_claims = [], 0
     for c in pick.get("claims") or []:
         t = c.get("type")
+        if t == "chart_position" and chart_rank(pick) is not None:
+            continue  # evidence-backed weekend rank (SR-1); the wording is checked by the lexical scan
         if t in NEVER_SUPPORTED:
             reasons.append(f"claim_unsupported:{t}: {c.get('text')!r} — no evidence in Phase 0 supports {t} claims")
             continue
@@ -266,12 +268,33 @@ def check_claims(pick: dict) -> list[str]:
     return reasons
 
 
-def _superlatives(text: str, comp: dict) -> list[str]:
+RANK_RE = re.compile(r"(?:no\.\s?|#\s?)(\d+)|(number one)", re.I)
+CHART_PHRASE_RE = re.compile(r"(?<![\w-])(box office crown|tops? the (?:weekend )?box office|wins? the weekend)(?![\w])", re.I)
+
+
+def chart_rank(pick: dict) -> int | None:
+    """The TN-reported weekend rank behind a weekend-strategy event (Takeover/Hold/Streak), if any.
+    Rank language is supported only by this evidence (SR-1)."""
+    se = (pick.get("evidence") or {}).get("strategy_event") or {}
+    r = se.get("chart_rank")
+    return int(r) if isinstance(r, (int, float)) or (isinstance(r, str) and r.isdigit()) else None
+
+
+def _superlatives(text: str, comp: dict, rank: int | None = None) -> list[str]:
     for m in SUPERLATIVE_RE.finditer(text):
         word = m.group(1)
         if word.lower() == "best" and re.match(r"best\s+picture", text[m.start():], re.I) and comp.get("is_best_picture"):
             continue
+        rm = RANK_RE.fullmatch(word.strip())
+        if rm and rank is not None:
+            stated = 1 if rm.group(2) else int(rm.group(1))
+            if stated == rank:
+                continue  # evidence-backed chart position (SR-1)
+            return [f"rank_mismatch: {word!r} but the chart evidence says No. {rank}"]
         return [f"lexical_superlative: {word!r}"]
+    for m in CHART_PHRASE_RE.finditer(text):
+        if rank != 1:
+            return [f"lexical_superlative: {m.group(1)!r} (needs No. 1 chart evidence)"]
     for word_re, allowed in CONTEXTUAL:
         for m in re.finditer(rf"(?<![\w-])({word_re})(?![\w])", text, re.I):
             rest, before = text[m.start():], text[:m.start()]
@@ -461,7 +484,7 @@ def lexical_checks(pick: dict, other_titles: list[str]) -> list[str]:
     own = [v for vs in films.values() for v in vs]
     raw = f"{pick.get('headline', '')}\n{pick.get('angle', '')}"
     text = _mask(raw, own)
-    reasons = _superlatives(text, comp)
+    reasons = _superlatives(text, comp, chart_rank(pick))
     tense = _tense(text)
     if _completed_event(ev):
         if tense == "anticipated":

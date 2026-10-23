@@ -548,9 +548,18 @@ def _run(ctx, run_date=None):
     logger.info("Corpus health: %s", corpus_load.summary())
     corpus = corpus_load.films
 
-    # Step 8: Load Cerebro signals
+    # Step 8: Audience signals. Phase 2: from the sanitized Cerebro snapshot when configured
+    # (FARAMIR_CEREBRO_SNAPSHOT; the established contract — News pool, matured, cumulative
+    # sessions per article); otherwise the legacy live-sheet signals.
+    from faramir.analytics import audience as audience_mod, cerebro_snapshot
+
+    cerebro_snap = None
+    try:
+        cerebro_snap = cerebro_snapshot.configured()
+    except Exception as exc:  # a refused or unreadable snapshot: no snapshot signals, never a guess
+        logger.warning("Cerebro snapshot not used: %s", exc)
     cerebro_rows = []
-    if cerebro_sheet_id:
+    if cerebro_sheet_id and cerebro_snap is None:
         try:
             cerebro_rows = load_cerebro(gc, cerebro_sheet_id)
             logger.info("Cerebro: loaded %d rows", len(cerebro_rows))
@@ -566,9 +575,15 @@ def _run(ctx, run_date=None):
         if film.get("collection_name"):
             all_collection_names.append(film["collection_name"])
 
-    talent_signals = build_talent_signals(cerebro_rows, list(set(all_talent_names)))
-    franchise_signals = build_franchise_signals(cerebro_rows, list(set(all_collection_names)))
-    cerebro_signals = {**talent_signals, **franchise_signals}
+    if cerebro_snap is not None:
+        cerebro_signals = audience_mod.signals(cerebro_snap, list(set(all_talent_names + all_collection_names)))
+        runtime.note("cerebro_source", {"source": "snapshot", "as_of": cerebro_snap.as_of.isoformat(),
+                                        "as_of_basis": cerebro_snap.as_of_basis, "articles": len(cerebro_snap.articles)})
+    else:
+        talent_signals = build_talent_signals(cerebro_rows, list(set(all_talent_names)))
+        franchise_signals = build_franchise_signals(cerebro_rows, list(set(all_collection_names)))
+        cerebro_signals = {**talent_signals, **franchise_signals}
+        runtime.note("cerebro_source", {"source": "live_sheet" if cerebro_rows else "none"})
 
     # Step 9: Build suppressed pairs from recent suggestions
     # Definitely-undelivered picks (not_delivered/expired/failed/dismissed) no longer suppress.
@@ -640,6 +655,25 @@ def _run(ctx, run_date=None):
                                        corpus_load.meta.get("gross_as_of"), suppressed_pairs, ledger)
     active_films_payload = engine.payload_films
     runtime.note("strategy_engine", engine.summary())
+
+    # Phase 2: headline guidance per event — constructions that fit the strategy, ranked by
+    # MovieWeb's historical box-office results (when a snapshot exists), plus proven MW Power Words.
+    from faramir.analytics import power_words as power_words_mod
+    from faramir.headlines.analysis import analyze as analyze_headlines
+    from faramir.headlines.recommend import recommend
+
+    headline_analysis = analyze_headlines(cerebro_snap) if cerebro_snap is not None else None
+    words = power_words_mod.configured()
+    headline_recs = {}
+    for pf in active_films_payload:
+        for cand in pf["candidates"]:
+            rec = recommend(cand.get("strategy", ""), headline_analysis, words)
+            cand["headline_guidance"] = rec.guidance()
+            headline_recs[cand.get("event_id")] = rec
+    runtime.note("headline_intelligence", {
+        "snapshot": headline_analysis is not None, "power_words": len(words),
+        "box_office_articles": headline_analysis.articles if headline_analysis else 0,
+        "baseline": headline_analysis.baseline if headline_analysis else None})
 
     # Phase 1b: weekend strategies (Takeover, Hold) on the latest completed weekend, from committed
     # weekend history only. With collection off (PR-16) this records that there is no data.
@@ -721,6 +755,15 @@ def _run(ctx, run_date=None):
                 "event_id": cluster.primary.event_id, "strategy": cluster.primary.strategy,
                 "secondary": cluster.secondary.strategy if cluster.secondary else None,
                 "rationale": pick["rationale"], "reason_codes": cluster.primary.reason_codes}}
+            from faramir.headlines.taxonomy import tag as tag_construction
+
+            rec = headline_recs.get(cluster.primary.event_id)
+            used = tag_construction(pick.get("headline", ""))
+            pick["evidence"]["headline"] = {
+                "constructions": used,
+                "followed_guidance": bool(rec and set(used) & set(rec.guidance()["preferred_constructions"])),
+                "recommended": rec.guidance() if rec else None,
+                "calibration": rec.calibration if rec else "no_evidence"}
     corpus_by_tmdb = {f.get("tmdb_id"): f for f in corpus}
 
     # Step 12: Log -> post -> confirm. Every pick gets an immutable suggestion_id

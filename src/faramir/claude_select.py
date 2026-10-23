@@ -138,6 +138,14 @@ the pick probably isn't strong enough.
   for about_to_pass.
 - List every factual assertion in the headline and angle in "claims".
 
+## Strategy events and headline guidance
+
+- Each candidate is a strategy event classified in code (`strategy`, `rationale`). The rationale
+  is verified evidence; the angle may draw on it.
+- When a candidate has `headline_guidance`, prefer its `preferred_constructions` (ranked by
+  MovieWeb's historical box-office results) and use a listed power word only where it fits
+  naturally and truthfully. Guidance never overrides the evidence rules above.
+
 ## Output format
 
 Return a JSON object ONLY. Do not write any analysis, reasoning, or prose before or after the JSON.
@@ -225,6 +233,7 @@ def _slim_payload(payload: dict) -> dict:
                 "strategy": c.get("strategy"),
                 "secondary_strategy": c.get("secondary_strategy"),
                 "rationale": c.get("rationale"),
+                "headline_guidance": c.get("headline_guidance"),
             })
         slim_film = {k: v for k, v in film.items() if k != "candidates"}
         slim_film["candidates"] = slim_candidates

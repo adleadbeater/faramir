@@ -16,6 +16,8 @@ from tests.fakes.fake_anthropic import FakeAnthropic, FakeMessage, FakeTextBlock
 DATA_DATE = "2026-10-21"
 ORIGINAL_PROMPT_SHA256 = "0cc056f0bdbb4f63ff5396d41dab3acf48903ce36beb2f3b22e8767281b0060b"  # @ f2a0ce4
 # Increment 8: the approved prompt edits (85 chars, superlative examples removed, evidence rules, claims).
+# Phase 2: adds the "Strategy events and headline guidance" section (nothing else changed).
+PHASE2_PROMPT_SHA256 = "b0b29e69e62092e13f8b0424dbb5238135fe44d7edc1ceb68c2573bbe643b05b"
 APPROVED_PROMPT_SHA256 = "775de5f2716767678cc87b80f891cd8a391b6fe82f6ba8c90c230891b2b2c4d4"
 
 
@@ -141,7 +143,7 @@ def test_request_uses_schema_model_limits_and_unchanged_prompt(monkeypatch):
     assert call["max_tokens"] == config.SELECTION_MAX_TOKENS
     assert call["output_config"]["format"]["type"] == "json_schema"
     assert call["output_config"]["format"]["schema"]["required"] == ["picks"]
-    assert hashlib.sha256(FARAMIR_SELECTION_PROMPT.encode()).hexdigest() == APPROVED_PROMPT_SHA256
+    assert hashlib.sha256(FARAMIR_SELECTION_PROMPT.encode()).hexdigest() == PHASE2_PROMPT_SHA256
     assert call["system"][0]["text"] == FARAMIR_SELECTION_PROMPT
     assert fake.client_kwargs == [{"timeout": config.SELECTION_TIMEOUT_S, "max_retries": config.SELECTION_MAX_RETRIES}]
 
