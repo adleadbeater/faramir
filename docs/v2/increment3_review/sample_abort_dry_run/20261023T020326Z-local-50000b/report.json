@@ -1,0 +1,31 @@
+{
+  "run_id": "20261023T020326Z-local-50000b",
+  "mode": "dry_run",
+  "enabled": false,
+  "fixtures_dir": "fixtures/offline/2026-10-22",
+  "started_at": "2026-10-23T02:03:26+00:00",
+  "finished_at": "2026-10-23T02:03:27+00:00",
+  "halted_reason": "corpus ABORT: legacy_format: corpus is a v1 list (legacy full build output); the v2 pipeline requires a schema-v2 file from build_corpus.py --repair-identities",
+  "write_outcomes": {
+    "recorded": 1
+  },
+  "run_date": "2026-10-22",
+  "corpus": {
+    "status": "ABORT",
+    "reasons": [
+      "legacy_format: corpus is a v1 list (legacy full build output); the v2 pipeline requires a schema-v2 file from build_corpus.py --repair-identities"
+    ],
+    "usable_rows": 0,
+    "exclusions": {},
+    "coverage": {},
+    "gross_as_of": null,
+    "age_days": null
+  },
+  "halts": [
+    "corpus ABORT: legacy_format: corpus is a v1 list (legacy full build output); the v2 pipeline requires a schema-v2 file from build_corpus.py --repair-identities"
+  ],
+  "preflight": {
+    "ok": false,
+    "corpus": "ABORT"
+  }
+}

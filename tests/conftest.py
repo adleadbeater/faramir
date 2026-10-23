@@ -32,6 +32,7 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "allow_network: test may open real network connections")
+    config.addinivalue_line("markers", "no_run_context: run without the default permissive test run context")
     config.addinivalue_line("markers", "local_capture: needs uncommitted captured source pages")
     config.addinivalue_line(
         "markers",
@@ -46,6 +47,22 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "local_capture" in item.keywords:
             item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True)
+def _test_run_context(request, tmp_path):
+    """Unit tests of write functions run inside a permissive live context whose
+    writes only ever reach the in-memory fakes. Tests of the guard itself mark
+    themselves ``no_run_context`` and install their own context."""
+    from faramir import runtime
+
+    if "no_run_context" in request.keywords:
+        with runtime.use(None):
+            yield None
+        return
+    ctx = runtime.RunContext(mode=runtime.LIVE, enabled=True, run_id="test", out_dir=str(tmp_path / "out"))
+    with runtime.use(ctx):
+        yield ctx
 
 
 class NetworkBlocked(RuntimeError):

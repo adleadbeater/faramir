@@ -72,11 +72,15 @@ def env(monkeypatch, tmp_path):
 
     for k, v in {
         "FARAMIR_SHEET_ID": "S", "SLACK_WEBHOOK_URL": WEBHOOK, "SLACK_BOT_TOKEN": "xoxb-test",
-        "SLACK_CHANNEL_ID": "C1", "TMDB_API_KEY": "test-key",
+        "SLACK_CHANNEL_ID": "C1", "TMDB_API_KEY": "test-key", "FARAMIR_ENABLED": "true",
     }.items():
         monkeypatch.setenv(k, v)
     monkeypatch.delenv("CEREBRO_MW_SHEET_ID", raising=False)
     return {"gc": gc, "http": http, "slack": slack, "tmp": tmp_path, "monkeypatch": monkeypatch}
+
+
+def run(env, *args):
+    return load_run_daily().main(["--out-root", str(env["tmp"] / "out"), *args])
 
 
 def payload_of(call):
@@ -109,7 +113,7 @@ def state_after(gc):
 def test_ok_corpus_runs_normally(env):
     fake = FakeAnthropic([pick_first_candidate]).install(env["monkeypatch"])
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
-    load_run_daily().main()
+    run(env)
 
     assert len(fake.calls) == 1 and candidate_comp_ids(fake)
     slack = env["slack"]
@@ -121,24 +125,25 @@ def test_ok_corpus_runs_normally(env):
 
 # ── ABORT: legacy corpus never used ─────────────────────────────────────
 
-def test_legacy_corpus_aborts_without_picks_but_updates_state(env):
+def test_legacy_corpus_aborts_with_no_writes_at_all(env):
+    # Revised in Increment 3: an ABORT halts ALL operational writes, state included.
     fake = FakeAnthropic([]).install(env["monkeypatch"])
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", os.path.join(ROOT, "data", "corpus.json"))
-    load_run_daily().main()
+    assert run(env) == 3
 
     assert fake.calls == []                       # Claude never called
     assert env["slack"].messages == []            # no picks posted
     (alert,) = env["slack"].webhook_posts         # only the integrity alert
     text = json.dumps(alert["payload"])
     assert "comparison data failed integrity" in text and "legacy_format" in text
-    assert state_after(env["gc"])[0]["domestic_today"] == 152_000_000
-    assert not env["gc"].book("S").worksheet("suggestions").data  # nothing logged
+    assert env["gc"].writes() == []               # no Sheets write of any kind
+    assert state_after(env["gc"])[0]["domestic_today"] == 140_000_000  # unchanged
 
 
 def test_missing_corpus_file_aborts(env):
     FakeAnthropic([]).install(env["monkeypatch"])
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", str(env["tmp"] / "nope.json"))
-    load_run_daily().main()
+    run(env)
     assert "corpus_missing" in json.dumps(env["slack"].webhook_posts[0]["payload"])
     assert env["slack"].messages == []
 
@@ -168,7 +173,7 @@ def test_degraded_target_is_a_candidate_on_the_ok_corpus(env):
     _, bad_tmdb = _degraded_copy(env["tmp"])
     fake = FakeAnthropic([pick_first_candidate]).install(env["monkeypatch"])
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
-    load_run_daily().main()
+    run(env)
     assert bad_tmdb in candidate_comp_ids(fake)
 
 
@@ -176,7 +181,7 @@ def test_degraded_corpus_excludes_bad_record_and_warns(env):
     path, bad_tmdb = _degraded_copy(env["tmp"])
     fake = FakeAnthropic([pick_first_candidate]).install(env["monkeypatch"])
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", path)
-    load_run_daily().main()
+    run(env)
 
     assert bad_tmdb not in candidate_comp_ids(fake)
     header = json.dumps(env["slack"].webhook_posts[0]["payload"], ensure_ascii=False)
@@ -196,6 +201,6 @@ def test_pick_with_comp_outside_usable_corpus_is_dropped(env):
 
     FakeAnthropic([invented]).install(env["monkeypatch"])
     env["monkeypatch"].setenv("FARAMIR_CORPUS_PATH", V2_PATH)
-    load_run_daily().main()
+    run(env)
     assert env["slack"].messages == []
     assert "0 editorial picks" in json.dumps(env["slack"].webhook_posts[0]["payload"])

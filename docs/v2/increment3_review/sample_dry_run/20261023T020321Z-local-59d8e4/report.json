@@ -1,0 +1,64 @@
+{
+  "run_id": "20261023T020321Z-local-59d8e4",
+  "mode": "dry_run",
+  "enabled": false,
+  "fixtures_dir": "fixtures/offline/2026-10-22",
+  "started_at": "2026-10-23T02:03:21+00:00",
+  "finished_at": "2026-10-23T02:03:21+00:00",
+  "halted_reason": null,
+  "write_outcomes": {
+    "recorded": 6
+  },
+  "run_date": "2026-10-22",
+  "corpus": {
+    "status": "OK",
+    "reasons": [],
+    "usable_rows": 2011,
+    "exclusions": {},
+    "coverage": {
+      "domestic": {
+        "reported": 1000,
+        "missing": 1011,
+        "confirmed_zero": 0,
+        "reported_share": 0.4973
+      },
+      "worldwide": {
+        "reported": 1999,
+        "missing": 12,
+        "confirmed_zero": 0,
+        "reported_share": 0.994
+      }
+    },
+    "gross_as_of": "2026-10-01",
+    "age_days": 21
+  },
+  "preflight": {
+    "ok": true,
+    "corpus": "OK"
+  },
+  "source_dates": {
+    "daily_chart": "2026-10-21",
+    "daily_rows": 5
+  },
+  "films": {
+    "active": 1,
+    "tracked": 1
+  },
+  "corpus_exclusions": [],
+  "candidates": 17,
+  "picks": {
+    "returned": 1,
+    "after_validation": 1
+  },
+  "claude_usage": [
+    {
+      "timestamp": "2026-10-23T02:03:21.844485+00:00",
+      "call_label": "select_picks",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cache_created": 0,
+      "cache_read": 0,
+      "model": "claude-sonnet-4-6"
+    }
+  ]
+}

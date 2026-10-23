@@ -122,6 +122,31 @@ class CorpusLoad:
             parts.append(f"comparison grosses are as of {self.meta.get('gross_as_of')} ({self.age_days} days old)")
         return "⚠ Comparison data degraded: " + "; ".join(parts) + ". Verify comparison figures before assigning."
 
+    def apply_stale(
+        self,
+        state_rows: list[dict] | None,
+        chart_rows: list[dict] | None,
+        chart_date: date | None,
+    ) -> int:
+        """Move records with stale-gross evidence from ``films`` to exclusions.
+
+        Stale exclusions never change the health class. Returns the count.
+        """
+        if self.status == ABORT or not self.films:
+            return 0
+        gross_as_of = date.fromisoformat(str(self.meta["gross_as_of"]))
+        stale = stale_evidence(self.films, gross_as_of, state_rows, chart_rows, chart_date)
+        if not stale:
+            return 0
+        kept = []
+        for f in self.films:
+            if f["imdb_id"] in stale:
+                self.exclusions.append(Exclusion(f["imdb_id"], str(f.get("title", "")), "stale", stale[f["imdb_id"]]))
+            else:
+                kept.append(f)
+        self.films = kept
+        return len(stale)
+
     def summary(self) -> dict:
         return {
             "status": self.status,
@@ -299,16 +324,6 @@ def load_corpus_v2(
             logger.error("Corpus ABORT: %s", r)
         return CorpusLoad(ABORT, reasons, meta, [], exclusions, actual_cov, age_days)
 
-    stale = stale_evidence(usable, gross_as_of, state_rows, chart_rows, chart_date)
-    if stale:
-        kept = []
-        for f in usable:
-            if f["imdb_id"] in stale:
-                exclusions.append(Exclusion(f["imdb_id"], str(f.get("title", "")), "stale", stale[f["imdb_id"]]))
-            else:
-                kept.append(f)
-        usable = kept
-
     if n_invalid:
         reasons.append(f"invalid_rows_excluded: {n_invalid}")
     if n_unresolved:
@@ -317,6 +332,8 @@ def load_corpus_v2(
         reasons.append(f"corpus_age: {age_days} days > {DEGRADED_MAX_AGE_DAYS}")
     status = DEGRADED if reasons else OK
     load = CorpusLoad(status, reasons, meta, usable, exclusions, actual_cov, age_days)
+    if state_rows or chart_rows:
+        load.apply_stale(state_rows, chart_rows, chart_date)
     logger.info("Corpus %s: %d usable of %d; exclusions %s; coverage dom %.1f%% ww %.1f%%",
                 status, len(usable), len(films), load.exclusion_counts(),
                 100 * actual_cov["domestic"]["reported_share"], 100 * ww_share)

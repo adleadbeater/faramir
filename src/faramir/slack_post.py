@@ -13,13 +13,23 @@ from datetime import date
 
 import requests
 
+from faramir.runtime import authorize, current, record_slack
+
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 10
 
 
-def _post_webhook(webhook_url: str, blocks: list[dict]) -> None:
-    """POST blocks to Slack via incoming webhook. No ts returned."""
+def _post_webhook(webhook_url: str, blocks: list[dict], kind: str = "slack") -> None:
+    """POST blocks to Slack via incoming webhook. No ts returned.
+
+    ``kind`` is the write-guard category: "slack" for normal output, "alert"
+    for failure alerts (the only Slack output allowed after a run halts).
+    """
+    allowed = authorize(kind, "webhook_post", {"blocks": len(blocks)})
+    record_slack(f"webhook:{kind}", blocks, sent=allowed)
+    if not allowed:
+        return
     try:
         resp = requests.post(webhook_url, json={"blocks": blocks}, timeout=TIMEOUT)
         resp.raise_for_status()
@@ -28,7 +38,14 @@ def _post_webhook(webhook_url: str, blocks: list[dict]) -> None:
 
 
 def _post_message(bot_token: str, channel_id: str, blocks: list[dict]) -> str | None:
-    """POST a message via chat.postMessage. Returns ts on success, None on failure."""
+    """POST a message via chat.postMessage. Returns ts on success, None on failure.
+
+    In dry-run the message is recorded locally and a placeholder ts is returned.
+    """
+    allowed = authorize("slack", "chat.postMessage", {"channel": channel_id, "blocks": len(blocks)})
+    record_slack("chat.postMessage", blocks, channel_id, sent=allowed)
+    if not allowed:
+        return current().next_dry_ts()
     try:
         resp = requests.post(
             "https://slack.com/api/chat.postMessage",
@@ -190,7 +207,7 @@ def post_failure(webhook_url: str, error: Exception, workflow_url: str = "") -> 
     text = f":x: *Faramir failed* — `{type(error).__name__}: {str(error)[:200]}`"
     if workflow_url:
         text += f"\n<{workflow_url}|View workflow run>"
-    _post_webhook(webhook_url, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}])
+    _post_webhook(webhook_url, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}], kind="alert")
 
 
 def post_init(webhook_url: str, film_count: int) -> None:
@@ -209,4 +226,4 @@ def post_corpus_abort(webhook_url: str, reasons: list[str], run_date: date) -> N
         f":warning: *Faramir {run_date.isoformat()}: comparison data failed integrity — no picks today.*\n"
         f"{lines}"
     )
-    _post_webhook(webhook_url, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}])
+    _post_webhook(webhook_url, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}], kind="alert")

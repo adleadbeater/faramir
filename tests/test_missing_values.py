@@ -184,4 +184,9 @@ def test_legacy_full_build_refuses_without_explicit_flag(monkeypatch):
     called = []
     monkeypatch.setattr(mod, "main", lambda: called.append(True))
     assert mod.entrypoint([]) == 3 and called == []
+    # Explicit flag but production corpus writes not enabled: fail-closed.
+    monkeypatch.delenv("FARAMIR_CORPUS_REFRESH_ENABLED", raising=False)
+    assert mod.entrypoint(["--legacy-full-build"]) == 4 and called == []
+    monkeypatch.setenv("FARAMIR_CORPUS_REFRESH_ENABLED", "true")
+    monkeypatch.chdir(os.path.dirname(__file__))  # artifacts under the repo's out/ are local only
     assert mod.entrypoint(["--legacy-full-build"]) == 0 and called == [True]

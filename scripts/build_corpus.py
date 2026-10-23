@@ -214,8 +214,11 @@ def main():
 
     # Write corpus.json
     corpus_path = os.path.join(os.path.dirname(__file__), "..", "data", "corpus.json")
-    with open(corpus_path, "w") as f:
-        json.dump(corpus, f, indent=2, default=str)
+    from faramir.runtime import authorize
+
+    if authorize("repo", "write_corpus_v1", {"path": "data/corpus.json", "rows": len(corpus)}):
+        with open(corpus_path, "w") as f:
+            json.dump(corpus, f, indent=2, default=str)
     logger.info("Wrote corpus to %s", corpus_path)
 
     # Append metadata to sheet
@@ -247,6 +250,7 @@ def repair_main(argv: list[str]) -> int:
 
     from faramir.corpus_repair import build_v2, repair_films, write_report
     from faramir.corpus_validate import validate_corpus
+    from faramir.runtime import authorize
     from faramir.tmdb import find_by_imdb, get_movie_details
 
     root = os.path.join(os.path.dirname(__file__), "..")
@@ -277,7 +281,9 @@ def repair_main(argv: list[str]) -> int:
     violations = validate_corpus(corpus)
 
     wrote_to = None
-    if not violations and not args.check_only:
+    if not violations and not args.check_only and authorize(
+        "repo", "write_corpus_v2", {"path": os.path.relpath(args.output, root), "rows": len(films)}
+    ):
         tmp = args.output + ".tmp"
         with open(tmp, "w") as f:
             json.dump(corpus, f, indent=2, default=str)
@@ -307,13 +313,32 @@ LEGACY_BUILD_REFUSAL = (
 
 
 def entrypoint(argv: list[str]) -> int:
-    if "--repair-identities" in argv:
-        return repair_main(argv)
-    if "--legacy-full-build" not in argv:
+    """CLI entry. Every repo/Sheets write goes through faramir.runtime.
+
+    Live writes require FARAMIR_CORPUS_REFRESH_ENABLED=true (fail-closed);
+    ``--dry-run`` records them under out/<run_id>/ instead.
+    """
+    from faramir import runtime
+
+    dry_run = "--dry-run" in argv
+    argv = [a for a in argv if a != "--dry-run"]
+    if "--repair-identities" not in argv and "--legacy-full-build" not in argv:
         logger.error(LEGACY_BUILD_REFUSAL)
         return 3
-    main()
-    return 0
+    ctx = runtime.new_context(dry_run=dry_run, enabled_var="FARAMIR_CORPUS_REFRESH_ENABLED")
+    ok, why = ctx.may_run()
+    if not ok:
+        logger.error("Corpus build not started: %s", why)
+        return 4
+    with runtime.use(ctx):
+        if "--repair-identities" in argv:
+            rc = repair_main(argv)
+        else:
+            main()
+            rc = 0
+    ctx.write_artifacts()
+    logger.info("Run artifacts: %s", ctx.out_dir)
+    return rc
 
 
 if __name__ == "__main__":

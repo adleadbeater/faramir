@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 
 import gspread
 
+from faramir.runtime import authorize
+
 logger = logging.getLogger(__name__)
 
 STATE_HEADERS = [
@@ -71,13 +73,15 @@ def read_state(client: gspread.Client, sheet_id: str) -> list[dict]:
 
 def write_state(client: gspread.Client, sheet_id: str, rows: list[dict]) -> None:
     """Write full state tab (clear + rewrite). Preserves header row."""
-    sh = client.open_by_key(sheet_id)
-    ws = sh.worksheet("state")
-    ws.clear()
     # Write headers then data
     data = [STATE_HEADERS]
     for row in rows:
         data.append([str(row.get(h, "")) for h in STATE_HEADERS])
+    if not authorize("sheets", "write_state", {"tab": "state", "rows": len(rows), "values": data}):
+        return
+    sh = client.open_by_key(sheet_id)
+    ws = sh.worksheet("state")
+    ws.clear()
     ws.update("A1", data)
     logger.info("write_state: wrote %d rows", len(rows))
 
@@ -97,6 +101,9 @@ def append_suggestions(client: gspread.Client, sheet_id: str, rows: list[dict]) 
     """Append rows to suggestions tab."""
     if not rows:
         return
+    values = [[str(row.get(h, "")) for h in SUGGESTIONS_HEADERS] for row in rows]
+    if not authorize("sheets", "append_suggestions", {"tab": "suggestions", "rows": len(rows), "values": values}):
+        return
     sh = client.open_by_key(sheet_id)
     ws = sh.worksheet("suggestions")
 
@@ -105,8 +112,8 @@ def append_suggestions(client: gspread.Client, sheet_id: str, rows: list[dict]) 
     if not existing:
         ws.append_row(SUGGESTIONS_HEADERS)
 
-    for row in rows:
-        ws.append_row([str(row.get(h, "")) for h in SUGGESTIONS_HEADERS])
+    for v in values:
+        ws.append_row(v)
     logger.info("append_suggestions: appended %d rows", len(rows))
 
 
@@ -114,12 +121,14 @@ def write_suggestions(client: gspread.Client, sheet_id: str, rows: list[dict]) -
     """Overwrite the full suggestions tab (used when updating rows with feedback)."""
     if not rows:
         return
-    sh = client.open_by_key(sheet_id)
-    ws = sh.worksheet("suggestions")
-    ws.clear()
     data = [SUGGESTIONS_HEADERS]
     for row in rows:
         data.append([str(row.get(h, "")) for h in SUGGESTIONS_HEADERS])
+    if not authorize("sheets", "write_suggestions", {"tab": "suggestions", "rows": len(rows), "values": data}):
+        return
+    sh = client.open_by_key(sheet_id)
+    ws = sh.worksheet("suggestions")
+    ws.clear()
     ws.update("A1", data)
     logger.info("write_suggestions: wrote %d rows", len(rows))
 
@@ -179,6 +188,10 @@ def flush_usage_to_sheet(client: gspread.Client, sheet_id: str) -> None:
 
     if not _USAGE_LOG:
         return
+    # Outside the fail-open try: a blocked write must surface, not be swallowed.
+    if not authorize("sheets", "flush_usage", {"tab": USAGE_TAB_NAME, "rows": list(_USAGE_LOG)}):
+        _USAGE_LOG.clear()
+        return
     try:
         sh = client.open_by_key(sheet_id)
         ws = _ensure_usage_tab(sh, USAGE_TAB_NAME)
@@ -198,6 +211,8 @@ def flush_usage_to_sheet(client: gspread.Client, sheet_id: str) -> None:
 
 def append_corpus_meta(client: gspread.Client, sheet_id: str, row: dict) -> None:
     """Append one row to corpus_meta tab."""
+    if not authorize("sheets", "append_corpus_meta", {"tab": "corpus_meta", "row": row}):
+        return
     sh = client.open_by_key(sheet_id)
     try:
         ws = sh.worksheet("corpus_meta")

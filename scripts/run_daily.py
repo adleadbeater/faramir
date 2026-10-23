@@ -115,15 +115,28 @@ def _validate_pick_figures(pick: dict, comp_film: dict | None, active_film: dict
     return None
 
 
-def main():
+def _sheet_client(ctx):
+    """Production Sheets client, or the read-only fixture client offline."""
+    if ctx.fixtures_dir:
+        from faramir.offline import sheet_client
+
+        return sheet_client()
+    from faramir.sheet import get_sheet_client
+
+    return get_sheet_client()
+
+
+def _run(ctx, run_date=None):
+    """The daily pipeline. Every external write goes through faramir.runtime."""
     from faramir import config
+    from faramir import runtime
+    from faramir import sheet as sheet_module
     from faramir.bom_fetch import fetch_daily_list, fetch_weekend_list, scrape_worldwide, normalize_title
     from faramir.corpus import ABORT, load_corpus_v2
     from faramir.matcher import find_all_candidates
     from faramir.milestone import find_milestones
     from faramir.cerebro import load_cerebro, build_talent_signals, build_franchise_signals
     from faramir.sheet import (
-        get_sheet_client,
         read_state,
         write_state,
         read_suggestions,
@@ -136,21 +149,46 @@ def main():
     from faramir.feedback import collect_feedback
     from faramir.sheet import write_suggestions
 
-    sheet_id = os.environ["FARAMIR_SHEET_ID"]
+    sheet_id = os.environ.get("FARAMIR_SHEET_ID", "")
     cerebro_sheet_id = os.environ.get("CEREBRO_MW_SHEET_ID", "")
-    slack_url = os.environ["SLACK_WEBHOOK_URL"]
+    slack_url = os.environ.get("SLACK_WEBHOOK_URL", "")
     slack_bot_token = os.environ.get("SLACK_BOT_TOKEN", "")
     slack_channel_id = os.environ.get("SLACK_CHANNEL_ID", "")
     workflow_url = os.environ.get("GITHUB_WORKFLOW_URL", "")
 
-    today = date.today()
+    today = run_date or date.today()
     yesterday = today - timedelta(days=1)
     is_monday = today.weekday() == 0
 
-    logger.info("=== Faramir daily run: %s ===", today)
+    logger.info("=== Faramir daily run: %s (%s, run_id %s) ===", today, ctx.mode, ctx.run_id)
+    runtime.note("run_date", str(today))
+
+    # Step 0: Preflight — before any read or write of production systems.
+    # A failure halts the run: no operational write can happen afterwards.
+    missing = [k for k, v in (("FARAMIR_SHEET_ID", sheet_id), ("SLACK_WEBHOOK_URL", slack_url)) if not v]
+    if missing:
+        ctx.halt(f"preflight: missing required settings {missing}")
+        runtime.note("preflight", {"ok": False, "missing_settings": missing})
+        logger.error("Preflight failed: missing %s — stopping with no writes", missing)
+        return
+    # The schema-v2 comparison corpus: a legacy (v1) or corrupt file is never
+    # used and never silently replaced. ABORT halts all operational writes
+    # (state included) and sends one alert.
+    corpus_path = os.environ.get("FARAMIR_CORPUS_PATH") or os.path.join(
+        os.path.dirname(__file__), "..", "data", "corpus.v2.json"
+    )
+    corpus_load = load_corpus_v2(corpus_path, run_date=today)
+    runtime.note("corpus", corpus_load.summary())
+    if corpus_load.status == ABORT:
+        ctx.halt("corpus ABORT: " + "; ".join(corpus_load.reasons))
+        runtime.note("preflight", {"ok": False, "corpus": "ABORT"})
+        post_corpus_abort(slack_url, corpus_load.reasons, today)
+        logger.error("=== Faramir stopped: comparison corpus ABORT — no picks and no data writes ===")
+        return
+    runtime.note("preflight", {"ok": True, "corpus": corpus_load.status})
 
     # Step 1: Connect to sheets
-    gc = get_sheet_client()
+    gc = _sheet_client(ctx)
 
     # Step 1b: Collect feedback on yesterday's picks (before anything else)
     if slack_bot_token and slack_channel_id:
@@ -193,6 +231,7 @@ def main():
         )
     if bom_date_used != yesterday:
         logger.info("Using BOM data from %s (yesterday unavailable)", bom_date_used)
+    runtime.note("source_dates", {"daily_chart": str(bom_date_used), "daily_rows": len(daily)})
 
     if is_monday:
         iso = yesterday.isocalendar()
@@ -329,6 +368,10 @@ def main():
             row["ww_stale_days"] = prior_ww_stale + 1
             # Leave worldwide_today unchanged from state
 
+    runtime.note("films", {
+        "active": sum(1 for r in new_state.values() if r.get("status") == "active"),
+        "tracked": len(new_state),
+    })
     if cold_start:
         logger.info("Cold start detected — seeding state, skipping picks")
         write_state(gc, sheet_id, list(new_state.values()))
@@ -377,27 +420,12 @@ def main():
             combined = dict(row)
         enriched_active.append(combined)
 
-    # Step 7: Load the schema-v2 comparison corpus and classify its health.
-    # A legacy (v1) or corrupt file is never used and never silently replaced:
-    # ABORT means no picks today, an alert, and state still updated.
-    corpus_path = os.environ.get("FARAMIR_CORPUS_PATH") or os.path.join(
-        os.path.dirname(__file__), "..", "data", "corpus.v2.json"
-    )
-    corpus_load = load_corpus_v2(
-        corpus_path,
-        run_date=today,
-        state_rows=list(new_state.values()),
-        chart_rows=daily,
-        chart_date=bom_date_used,
-    )
+    # Step 7: Apply stale-gross evidence (today's state and chart) to the
+    # corpus checked in preflight. Only usable records are used from here on.
+    corpus_load.apply_stale(list(new_state.values()), daily, bom_date_used)
+    runtime.note("corpus", corpus_load.summary())
+    runtime.note("corpus_exclusions", [vars(e) for e in corpus_load.exclusions])
     logger.info("Corpus health: %s", corpus_load.summary())
-    if corpus_load.status == ABORT:
-        post_corpus_abort(slack_url, corpus_load.reasons, today)
-        write_state(gc, sheet_id, list(new_state.values()))
-        flush_usage_to_sheet(gc, sheet_id)
-        logger.error("=== Faramir stopped: comparison corpus ABORT, no picks ===")
-        return
-    # Only usable records (invalid, unresolved and stale ones removed).
     corpus = corpus_load.films
 
     # Step 8: Load Cerebro signals
@@ -458,6 +486,7 @@ def main():
     # Step 10: Find candidates and milestones
     candidates = find_all_candidates(enriched_active, corpus, cerebro_signals, suppressed_pairs)
     logger.info("Matcher: %d total candidates across all active films", len(candidates))
+    runtime.note("candidates", len(candidates))
 
     # Build per-film candidate lists for the Claude payload
     active_films_payload: list[dict] = []
@@ -540,6 +569,7 @@ def main():
             )
             continue
         validated_picks.append(pick)
+    runtime.note("picks", {"returned": len(picks), "after_validation": len(validated_picks)})
     picks = validated_picks
 
     # Step 12: Post to Slack
@@ -586,22 +616,69 @@ def main():
     write_state(gc, sheet_id, list(new_state.values()))
 
     # Step 14: Flush Claude usage records to the Usage sheet tab (fails open)
+    runtime.note("claude_usage", list(sheet_module._USAGE_LOG))
     flush_usage_to_sheet(gc, sheet_id)
 
     logger.info("=== Faramir complete: %d picks logged ===", len(picks))
 
 
+def main(argv: list[str] | None = None) -> int:
+    """Entry point. Live runs need FARAMIR_ENABLED=true (fail-closed);
+    ``--dry-run`` records every write under out/<run_id>/ instead; and
+    ``--fixtures DIR`` (dry-run only) runs fully offline from fixture files.
+    """
+    import argparse
+
+    from faramir import runtime
+
+    parser = argparse.ArgumentParser(prog="run_daily.py")
+    parser.add_argument("--dry-run", action="store_true", default=runtime.env_flag("FARAMIR_DRY_RUN"))
+    parser.add_argument("--fixtures", default=None, help="offline fixture directory (requires --dry-run)")
+    parser.add_argument("--out-root", default=None, help="where run artifacts go (default: out/)")
+    parser.add_argument("--run-date", default=None, help="YYYY-MM-DD, dry-run only")
+    args = parser.parse_args(argv or [])
+
+    ctx = runtime.new_context(dry_run=args.dry_run, fixtures_dir=args.fixtures, out_root=args.out_root)
+    ok, why = ctx.may_run()
+    if not ok:
+        logger.warning("Faramir not started: %s", why)
+        ctx.report["not_started"] = why
+        ctx.write_artifacts()
+        return 0
+    if args.run_date and not ctx.dry_run:
+        logger.error("--run-date is only allowed with --dry-run")
+        return 2
+    run_date = date.fromisoformat(args.run_date) if args.run_date else None
+
+    rc = 0
+    with runtime.use(ctx):
+        try:
+            if ctx.fixtures_dir:
+                from faramir import offline
+
+                with offline.activate(ctx.fixtures_dir):
+                    _run(ctx, run_date or offline.run_date())
+            else:
+                _run(ctx, run_date)
+        except Exception as exc:
+            rc = 1
+            logger.exception("Faramir daily run failed with unhandled exception")
+            runtime.note("error", f"{type(exc).__name__}: {exc}")
+            slack_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+            if slack_url:
+                try:
+                    from faramir.slack_post import post_failure
+
+                    post_failure(slack_url, exc, os.environ.get("GITHUB_WORKFLOW_URL", ""))
+                except Exception:
+                    logger.exception("Could not send failure alert")
+        finally:
+            ctx.write_artifacts()
+            logger.info("Run artifacts: %s (writes: %s)", ctx.out_dir, ctx.counts())
+    if ctx.halted_reason and rc == 0:
+        rc = 3
+    return rc
+
+
 if __name__ == "__main__":
-    _slack_url = os.environ.get("SLACK_WEBHOOK_URL", "")
-    _workflow_url = os.environ.get("GITHUB_WORKFLOW_URL", "")
-    try:
-        main()
-    except Exception as _exc:
-        logger.exception("Faramir daily run failed with unhandled exception")
-        if _slack_url:
-            try:
-                from faramir.slack_post import post_failure
-                post_failure(_slack_url, _exc, _workflow_url)
-            except Exception:
-                pass
-        sys.exit(1)
+    sys.exit(main(sys.argv[1:]))

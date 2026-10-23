@@ -130,75 +130,127 @@ def main(argv=None) -> int:
     C = run(find_all_candidates, load.films, probe_list)
 
     parity = A == B
+
+    # Every candidate is keyed by a STABLE film identity — the comp's IMDb id —
+    # plus probe/axis/kind. A relabelled record therefore matches its old self
+    # and is reported as an identity correction, never as a new story.
+    keys_a, keys_c = set(A), set(C)
+    matched = keys_a & keys_c
     rows = []
-    for key in sorted(set(A) | set(C)):
+    counts = {k: 0 for k in ("unchanged", "identity_corrected", "identity_corrected_and_rescored",
+                             "rescored_same_identity", "removed_stale", "removed_other", "added")}
+    for key in sorted(keys_a | keys_c):
         a, c = A.get(key), C.get(key)
         label, axis, kind, imdb = key
         if a and c:
-            if (a["tmdb_id"], a["title"], a["year"]) != (c["tmdb_id"], c["title"], c["year"]):
-                reason = "identity_corrected"
-            elif a["categories"] != c["categories"] or a["score"] != c["score"]:
-                reason = "categories_or_score_changed"
+            relabelled = (a["tmdb_id"], a["title"], a["year"]) != (c["tmdb_id"], c["title"], c["year"])
+            rescored = a["categories"] != c["categories"] or a["score"] != c["score"]
+            if relabelled and rescored:
+                change = "identity_corrected_and_rescored"
+            elif relabelled:
+                change = "identity_corrected"
+            elif rescored:
+                change = "rescored_same_identity"
             else:
+                counts["unchanged"] += 1
                 continue
+            detail = ""
         elif a:
-            reason = f"excluded:{excluded[imdb]}" if imdb in excluded else "not_surfaced_after_rescoring_or_cap"
+            if imdb in excluded:
+                change, detail = "removed_stale", excluded[imdb]
+            else:
+                change, detail = "removed_other", "dropped below MIN_RICHNESS_TO_SURFACE or per-cell cap after the comp's corrected metadata changed its score"
         else:
-            reason = "newly_surfaced_after_rescoring_or_cap"
+            change, detail = "added", "newly reaches MIN_RICHNESS_TO_SURFACE / per-cell cap after corrected metadata"
+        counts[change] += 1
         rows.append({
-            "probe": label, "axis": axis, "kind": kind, "imdb_id": imdb, "reason": reason,
+            "change": change, "probe": label, "axis": axis, "kind": kind, "comp_imdb_id": imdb,
             "old_label": f"{a['title']} ({a['year']})" if a else "", "new_label": f"{c['title']} ({c['year']})" if c else "",
+            "old_tmdb_id": a["tmdb_id"] if a else "", "new_tmdb_id": c["tmdb_id"] if c else "",
             "old_categories": "|".join(a["categories"]) if a else "", "new_categories": "|".join(c["categories"]) if c else "",
             "old_score": a["score"] if a else "", "new_score": c["score"] if c else "",
-            "threshold": (a or c)["threshold"],
+            "threshold": (a or c)["threshold"], "detail": detail,
         })
+
+    corrected = counts["identity_corrected"] + counts["identity_corrected_and_rescored"]
+    removed = counts["removed_stale"] + counts["removed_other"]
+    in_both = len(matched)
+    assert in_both == counts["unchanged"] + corrected + counts["rescored_same_identity"]
+    assert len(A) == in_both + removed and len(C) == in_both + counts["added"]
+    assert len(rows) == corrected + counts["rescored_same_identity"] + removed + counts["added"]
 
     os.makedirs(args.out, exist_ok=True)
     csv_path = os.path.join(args.out, "candidate_differences.csv")
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["probe"])
+        w = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["change"])
         w.writeheader()
         w.writerows(rows)
 
-    from collections import Counter
-    by_reason = Counter(r["reason"].split(" (")[0] for r in rows)
+    distinct_relabelled = len({r["comp_imdb_id"] for r in rows if r["change"].startswith("identity_corrected")})
     chart = [r for r in rows if r["probe"].startswith("chart:")]
+
+    def table(change, limit=None):
+        sel = [r for r in rows if r["change"] == change][:limit]
+        if not sel:
+            return ["_None._", ""]
+        out = ["| Probe | Axis/kind | Comp IMDb | Old | New | Old→new categories (score) | Detail |", "|---|---|---|---|---|---|---|"]
+        for r in sel:
+            cats = f"{r['old_categories'] or '—'} ({r['old_score']}) → {r['new_categories'] or '—'} ({r['new_score']})"
+            out.append(f"| {r['probe']} | {r['axis']}/{r['kind']} | {r['comp_imdb_id']} | {r['old_label']} | {r['new_label']} | {cats} | {r['detail']} |")
+        return out + [""]
+
     lines = [
-        "# Increment 2: candidate-set comparison",
+        "# Increment 2: candidate-set comparison (reconciled)",
         "",
         f"Base commit for run A: `{args.base_commit}`. Run date {run_date}. Probes: {len(probe_list)} "
-        f"({len(CHART_2026_10_21)} real chart films from 2026-10-21 plus a {len(probe_list) - len(CHART_2026_10_21)}-level synthetic sweep). "
-        "All probes use neutral metadata (no franchise/director/cast links), so differences come from the corpus, not the active film.",
+        f"({len(CHART_2026_10_21)} real chart films from 2026-10-21 plus a {len(probe_list) - len(CHART_2026_10_21)}-level synthetic sweep), "
+        "all with neutral metadata (no franchise/director/cast links), so differences come from the corpus, not the active film.",
+        "",
+        "Runs: **A** original code + v1 corpus; **B** current code + v1 corpus; **C** current code + usable v2 records.",
+        "Candidates are matched by `(probe, axis, kind, comp IMDb id)`. The IMDb id is the film's stable identity, so a "
+        "relabelled record is matched to itself and counted as an identity correction, not as a removed + added story.",
         "",
         f"- Corpus v2 health: **{load.status}**; usable {len(load.films)} of {load.meta.get('rows')}; exclusions {load.exclusion_counts() or 'none'}",
-        f"- Code parity (A original code vs B current code, both on v1 corpus): **{'IDENTICAL' if parity else 'DIFFERENT'}** — {len(A)} candidates each",
-        f"- Candidates: A (old) {len(A)}, C (new) {len(C)}; differences {len(rows)}",
+        f"- Code parity A vs B: **{'IDENTICAL' if parity else 'DIFFERENT'}** ({len(A)} candidates each) — the code changes alone change nothing on v1 data.",
         "",
-        "## Differences by cause (A → C)",
+        "## Reconciliation",
         "",
-        "| Cause | Count |",
-        "|---|---|",
-    ]
-    lines += [f"| {k} | {v} |" for k, v in by_reason.most_common()]
-    lines += [
+        "| Category | Count | In A (old) | In C (new) | Counted as a difference |",
+        "|---|---|---|---|---|",
+        f"| Unchanged (same identity, categories, score) | {counts['unchanged']} | ✓ | ✓ | no |",
+        f"| Identity corrected, score unchanged | {counts['identity_corrected']} | ✓ | ✓ | yes |",
+        f"| Identity corrected and score changed | {counts['identity_corrected_and_rescored']} | ✓ | ✓ | yes |",
+        f"| Score/categories changed, same identity | {counts['rescored_same_identity']} | ✓ | ✓ | yes |",
+        f"| Removed: stale exclusion | {counts['removed_stale']} | ✓ | — | yes |",
+        f"| Removed: no longer surfaces after corrected metadata | {counts['removed_other']} | ✓ | — | yes |",
+        f"| Added: newly surfaces after corrected metadata | {counts['added']} | — | ✓ | yes |",
+        f"| **Total** | | **{len(A)}** | **{len(C)}** | **{len(rows)}** |",
         "",
-        "Missing-data handling causes **no** candidate differences by itself: the v1 index already skipped zero grosses, and v2 makes that explicit (`None`/`missing`).",
+        f"- A = {counts['unchanged']} + {corrected} + {counts['rescored_same_identity']} + {removed} = {len(A)}",
+        f"- C = {counts['unchanged']} + {corrected} + {counts['rescored_same_identity']} + {counts['added']} = {len(C)}",
+        f"- Differences = {corrected} corrected + {counts['rescored_same_identity']} rescored + {removed} removed + {counts['added']} added = {len(rows)}",
+        f"- Net change C − A = {counts['added']} added − {removed} removed = {len(C) - len(A)}",
+        f"- The {corrected} identity corrections involve {distinct_relabelled} distinct comp records (the same record is a candidate for several probe levels).",
+        "",
+        "Missing-data handling causes **no** differences by itself: the v1 index already skipped zero grosses; v2 makes that explicit.",
+        "No editorial scoring was changed; every score change comes from corrected comp metadata (e.g. release year → classic flag).",
         "",
         "## Real chart films (2026-10-21)",
         "",
-        "| Probe | Axis/kind | Old comp | New comp | Cause |",
-        "|---|---|---|---|---|",
     ]
-    lines += [f"| {r['probe'][6:]} | {r['axis']}/{r['kind']} | {r['old_label']} | {r['new_label']} | {r['reason']} |" for r in chart]
-    if not chart:
-        lines.append("| — | — | — | — | no differences |")
-    lines += ["", "## Identity corrections seen in the sweep (first 30)", "", "| Probe | Old comp | New comp |", "|---|---|---|"]
-    lines += [f"| {r['probe']} | {r['old_label']} | {r['new_label']} |" for r in rows if r["reason"] == "identity_corrected"][:30]
-    lines += ["", f"Full list: `{os.path.relpath(csv_path, ROOT)}`.", ""]
+    lines += ["| Probe | Axis/kind | Old comp | New comp | Change |", "|---|---|---|---|---|"]
+    lines += [f"| {r['probe'][6:]} | {r['axis']}/{r['kind']} | {r['old_label']} | {r['new_label']} | {r['change']} |" for r in chart] or ["| — | — | — | — | none |"]
+    lines += ["", "## Removed: stale exclusions", ""] + table("removed_stale")
+    lines += ["## Removed: no longer surfaces", ""] + table("removed_other")
+    lines += ["## Added", ""] + table("added")
+    lines += ["## Score changed with corrected identity", ""] + table("identity_corrected_and_rescored")
+    lines += ["## Score changed, same identity", ""] + table("rescored_same_identity")
+    lines += ["## Identity corrections, score unchanged (first 25)", ""] + table("identity_corrected", 25)
+    lines += [f"Full list: `{os.path.relpath(csv_path, ROOT)}`.", ""]
     md_path = os.path.join(args.out, "candidate_comparison.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
-    print(f"parity={parity} A={len(A)} C={len(C)} differences={len(rows)} {dict(by_reason)}")
+    print(f"parity={parity} A={len(A)} C={len(C)} differences={len(rows)} {counts}")
     print(md_path)
     return 0 if parity else 1
 
