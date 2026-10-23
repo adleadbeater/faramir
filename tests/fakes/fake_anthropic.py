@@ -1,0 +1,68 @@
+"""Fake Anthropic client returning scripted responses.
+
+Install with ``FakeAnthropic([...]).install(monkeypatch)``; it replaces
+``anthropic.Anthropic`` so ``faramir.claude_select`` builds the fake instead of
+a real client. Each scripted item is either response text (str) or an
+Exception to raise from ``messages.create``.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import anthropic
+
+
+@dataclass
+class FakeUsage:
+    input_tokens: int = 1000
+    output_tokens: int = 200
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+
+
+@dataclass
+class FakeTextBlock:
+    text: str
+    type: str = "text"
+
+
+@dataclass
+class FakeMessage:
+    content: list
+    stop_reason: str = "end_turn"
+    usage: FakeUsage = field(default_factory=FakeUsage)
+    stop_details: object = None
+
+
+class _Messages:
+    def __init__(self, owner: "FakeAnthropic"):
+        self._owner = owner
+
+    def create(self, **kwargs):
+        self._owner.calls.append(kwargs)
+        if not self._owner.script:
+            raise AssertionError("FakeAnthropic: no scripted response left")
+        item = self._owner.script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        if isinstance(item, FakeMessage):
+            return item
+        return FakeMessage(content=[FakeTextBlock(item)])
+
+
+class FakeAnthropic:
+    def __init__(self, script: list | None = None):
+        self.script = list(script or [])
+        self.calls: list[dict] = []
+        self.client_kwargs: list[dict] = []
+        self.messages = _Messages(self)
+
+    def __call__(self, *args, **kwargs):
+        # Acts as the class: anthropic.Anthropic(...) returns this instance.
+        self.client_kwargs.append(kwargs)
+        return self
+
+    def install(self, monkeypatch) -> "FakeAnthropic":
+        monkeypatch.setattr(anthropic, "Anthropic", self)
+        return self

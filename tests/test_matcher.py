@@ -119,12 +119,46 @@ def test_unexpected_giant_killer_detected():
     assert "unexpected_giant_killer" in categories
 
 
-def test_unexpected_giant_killer_requires_no_overlap():
-    # Shared genre should prevent unexpected_giant_killer
+def test_unexpected_giant_killer_is_genre_agnostic():
+    # Genre overlap deliberately does NOT block the angle (commit 828b2fe): a
+    # horror film passing an iconic horror hit is still a giant-killer story.
+    # This replaces the stale assertion that shared genre prevents it.
     active = make_film(genres=["Horror"], collection_id=None)
     comp = make_corpus_film(genres=["Horror"], worldwide_lifetime=600_000_000, collection_id=None)
     categories = detect_angle_categories(active, comp, [comp])
-    assert "unexpected_giant_killer" not in categories
+    assert "unexpected_giant_killer" in categories
+
+
+def test_unexpected_giant_killer_blocked_by_franchise_overlap():
+    active = make_film(collection_id=7)
+    comp = make_corpus_film(collection_id=7, worldwide_lifetime=600_000_000)
+    assert "unexpected_giant_killer" not in detect_angle_categories(active, comp, [comp])
+
+
+def test_unexpected_giant_killer_blocked_by_director_overlap():
+    active = make_film(director="Jane Smith")
+    comp = make_corpus_film(director="Jane Smith", worldwide_lifetime=600_000_000)
+    assert "unexpected_giant_killer" not in detect_angle_categories(active, comp, [comp])
+
+
+def test_unexpected_giant_killer_blocked_by_cast_overlap():
+    active = make_film(lead_cast=["Actor A", "Actor B"])
+    comp = make_corpus_film(lead_cast=["Actor B"], worldwide_lifetime=600_000_000)
+    assert "unexpected_giant_killer" not in detect_angle_categories(active, comp, [comp])
+
+
+def test_unexpected_giant_killer_requires_notable_comp():
+    # No creative overlap, but the comp is neither >$500M WW, Best Picture nor classic.
+    active = make_film()
+    comp = make_corpus_film(worldwide_lifetime=400_000_000)
+    assert "unexpected_giant_killer" not in detect_angle_categories(active, comp, [comp])
+
+
+def test_unexpected_giant_killer_notable_via_best_picture_or_classic():
+    active = make_film()
+    for flag in ("is_best_picture", "is_classic"):
+        comp = make_corpus_film(worldwide_lifetime=100_000_000, **{flag: True})
+        assert "unexpected_giant_killer" in detect_angle_categories(active, comp, [comp])
 
 
 def test_same_origin_detected():
