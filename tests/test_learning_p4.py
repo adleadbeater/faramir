@@ -318,3 +318,35 @@ def test_a_single_outcome_has_no_interval_rather_than_a_zero_width_one():
     est = estimate([{"strategy": "overtake", "sessions": 7000}], "strategy")
     assert est["__global__"].interval is None and est["overtake"].interval is None
     assert est["overtake"].is_experimental
+
+
+def test_weekend_story_reaches_the_writer_for_a_film_only_on_the_weekend_chart():
+    from faramir import prioritize as prio
+    from faramir.classify import classify
+    from faramir.strategies.weekend import WeekendRow
+
+    row = WeekendRow("Wicker-(2026)", "Wicker", 5, 5, 5_700_000, 1471, 9_800_000, 10, "ranked", "original",
+                     1195803, "tt29611136", "high")
+    e = Event(strategy="dark_horse", film={"tmdb_id": 1195803, "title": "Wicker", "identity_class": "verified"},
+              period="2026-10-23", axis="weekend", target={"type": "rival", "value": "x"}, status="confirmed",
+              evidence={"rank": 5, "weekend_gross": 5_700_000}, sources=[Source("tn_weekend_history", "r", "2026-10-23")],
+              reason="Wicker out-grossed a wider release.", reason_codes=["theaters"], strength=0.7)
+    args = ([], [], classify([e]), [], {}, {}, {"__global__": estimate([], "strategy")["__global__"]}, {}, {}, CFG, "r", 6, 0)
+    payload, decisions = prio.prioritize(*args)
+    assert payload == [] and decisions[0].disposition["reason_codes"] == ["film_not_active_in_payload"]
+    payload, decisions = prio.prioritize(*args, weekend_rows=[row])
+    (film,) = payload
+    assert film["title"] == "Wicker" and film["source"] == "weekend_chart" and film["candidates"][0]["strategy"] == "dark_horse"
+
+
+def test_discovery_card_keeps_this_weekends_gross_separate_from_last_weekends():
+    from faramir.discovery.items import Claim, DiscoveryItem
+    from faramir.prioritize import DiscoveryEvent
+
+    item = DiscoveryItem("weekend_change_zscore", "2026-10-23", "YCSE-(2026)", "You Can See Everything",
+                         "weekend_change_pct", 25.0, {}, [
+                             Claim("YCSE-(2026)", "weekend_gross", 19_500_000, "2026-10-23", "c2:YCSE"),
+                             Claim("YCSE-(2026)", "weekend_gross", 15_600_000, "2026-10-16", "c1:YCSE")],
+                         "", "", "", [])
+    ev = DiscoveryEvent(item, {"tmdb_id": 1})
+    assert ev.evidence["weekend_gross"] == 19_500_000 and ev.evidence["previous_weekend_gross"] == 15_600_000

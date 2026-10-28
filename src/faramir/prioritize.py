@@ -26,7 +26,11 @@ class DiscoveryEvent:
         self.strength = 0.6
         self.axis = "weekend"
         self.period = item.period
-        self.evidence = {c.metric: c.value for c in item.claims if c.film_key == item.film_key} | {item.metric: item.value}
+        # This weekend's figures keep their names; an earlier weekend's become previous_<metric>, so a
+        # card never shows last weekend's gross as this weekend's.
+        own = [c for c in item.claims if c.film_key == item.film_key]
+        self.evidence = ({f"previous_{c.metric}": c.value for c in own if c.period != item.period}
+                         | {c.metric: c.value for c in own if c.period == item.period} | {item.metric: item.value})
         self.sources = [Source("tn_weekend_history", c.source_row, c.period) for c in item.claims[:2]]
         self.reason_codes = [f"discovery:{item.generator}"]
 
@@ -46,11 +50,33 @@ def event_candidate(e, chart_rank=None, values=None, rationale=None) -> dict:
             "suppressed": False}
 
 
+def weekend_film(row) -> dict:
+    """A payload film for a weekend-chart film that isn't on today's daily chart (weekend stories only)."""
+    return {"tmdb_id": row.tmdb_id, "title": row.title, "release_date": "", "days_in_release": row.days_in_release,
+            "distributor": "", "director": "", "lead_cast": [], "genres": [], "collection_id": None,
+            "collection_name": "", "domestic_yesterday": row.total_gross, "domestic_today": row.total_gross,
+            "worldwide_yesterday": None, "worldwide_today": None, "is_signal": False, "candidates": [],
+            "source": "weekend_chart"}
+
+
 def prioritize(payload_films: list[dict], daily_clusters: list, weekend_clusters: list, discovery_items: list,
                films_by_id: dict, signals: dict, estimates: dict, deliveries_by_strategy: dict, headline_recs: dict,
-               cfg: dict, run_id: str, slots: int, explored_this_week: int):
+               cfg: dict, run_id: str, slots: int, explored_this_week: int, weekend_rows: list | None = None):
+    """``weekend_rows``: the latest weekend chart's rows. A weekend or Discovery story about an identified
+    film on that chart reaches the writer even when the film isn't on today's daily chart."""
     entries = []   # (decision, film_tmdb_id, candidate)
     by_film_payload = {pf["tmdb_id"]: pf for pf in payload_films}
+    on_weekend = {r.tmdb_id: r for r in (weekend_rows or []) if r.tmdb_id}
+    by_key = {r.film_key: r.tmdb_id for r in (weekend_rows or []) if r.tmdb_id}
+    extra: dict[int, dict] = {}
+
+    def trackable(tid) -> bool:
+        if tid in by_film_payload or tid in extra:
+            return True
+        if tid in on_weekend:
+            extra[tid] = weekend_film(on_weekend[tid])
+            return True
+        return False
     daily_by_event = {c.get("event_id"): c for pf in payload_films for c in pf["candidates"]}
     for cl in daily_clusters:
         e = cl.primary
@@ -65,7 +91,7 @@ def prioritize(payload_films: list[dict], daily_clusters: list, weekend_clusters
         cand = event_candidate(e, e.evidence.get("rank"), rationale=rationale_mod.line(e, cl.secondary))
         d = score_event(e, cfg, run_id, _best_signal(film, signals), estimates, deliveries_by_strategy, None, 1.0,
                         cl.secondary, cl.rejected_alternatives)
-        if cl.disposition == "deferred" or tid not in by_film_payload:
+        if cl.disposition == "deferred" or not trackable(tid):
             d.disposition = {"value": "filtered", "reason_codes": ["provisional" if cl.disposition == "deferred"
                                                                    else "film_not_active_in_payload"]}
             entries.append((d, None, None))
@@ -76,6 +102,8 @@ def prioritize(payload_films: list[dict], daily_clusters: list, weekend_clusters
         for pf in payload_films:
             if item.title and (pf.get("title") or "").lower() == item.title.lower():
                 tid = pf["tmdb_id"]
+        if tid is None and by_key.get(item.film_key) and trackable(by_key[item.film_key]):
+            tid = by_key[item.film_key]
         ev = DiscoveryEvent(item, {"tmdb_id": tid, "title": item.title, "identity_class": "verified" if tid else "legacy"})
         cand = event_candidate(ev, values=ev.evidence, rationale=f"Discovery · {item.why_it_matters}")
         d = score_event(ev, cfg, run_id, None, estimates, deliveries_by_strategy, None, item.novelty)
@@ -89,7 +117,7 @@ def prioritize(payload_films: list[dict], daily_clusters: list, weekend_clusters
     keep = {d.event_id for d in ordered if d.disposition["value"] == "suggested"}
     by_event = {d.event_id: (tid, cand) for d, tid, cand in rankable}
     new_payload = []
-    for pf in payload_films:
+    for pf in payload_films + list(extra.values()):
         cands = []
         for d in ordered:
             tid, cand = by_event[d.event_id]

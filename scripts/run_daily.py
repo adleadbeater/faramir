@@ -726,11 +726,22 @@ def _run(ctx, run_date=None):
     weekend_clusters = [c for c in weekend_result.clusters if c.primary.event_id not in delivered_ids]
     discovery_items = [i for i in discovery_result.items if i.id not in delivered_ids]
     slots = config.PICKS_MAX_BY_DAY.get(today.weekday(), 4) + 2
+    # The latest weekend chart's identified films: their weekend and Discovery stories can reach the
+    # writer even when the film isn't on today's daily chart (weekday charts list as few as 10 films).
+    weekend_rows = []
+    if weekend_result.status == "ok":
+        try:
+            from faramir import history as history_mod
+            from faramir.strategies.weekend import from_snapshot
+            latest = from_snapshot(history_mod.read_weekend(gc, sheet_id, latest_weekend))
+            weekend_rows = latest.rows if latest else []
+        except Exception as exc:  # noqa: BLE001 — weekend-only films are optional; never fail the run
+            logger.warning("weekend chart films unavailable for prioritization: %s", exc)
     active_films_payload, decisions = prio.prioritize(
         active_films_payload, engine.delivered_clusters, weekend_clusters, discovery_items,
         {f.get("tmdb_id"): f for f in enriched_active}, cerebro_signals, estimates,
         learn_pipeline.deliveries_by_strategy(ledger), headline_recs, priority_cfg, ctx.run_id, slots,
-        learn_pipeline.explored_recently(ledger, str(today)))
+        learn_pipeline.explored_recently(ledger, str(today)), weekend_rows)
     ledger.append("decisions", [d.record() for d in decisions], month=str(today)[:7])
     runtime.note("prioritization", {
         "config_version": priority_cfg["version"], "calibration": estimates["__global__"].status,
