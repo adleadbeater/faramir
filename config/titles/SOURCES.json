@@ -1,0 +1,12 @@
+{
+ "aragorn_system_prompt.md": {
+  "source": "aragorn/prompts/system-prompt.md (claude-space-robert-sperduto)",
+  "sha256": "f33638f98384a0ddb7b7591762b4f7faf83b6972aad4af1168b7205399d83761",
+  "copied": "2026-10-28"
+ },
+ "movieweb_title_crafting_rules.md": {
+  "source": "MovieWeb Title Crafting Rules (Rob, Sep 28 2026)",
+  "sha256": "c4bae026e2dddf33366a2bde36a5e5bafb6744e958a3194b17b6d4a0d6647aba",
+  "copied": "2026-10-28"
+ }
+}

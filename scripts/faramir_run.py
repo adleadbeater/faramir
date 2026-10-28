@@ -201,10 +201,75 @@ def build_cards(payload: dict | None, report: dict, picks: list[dict], imdb: dic
             label += f" (+{LABEL.get(c['secondary_strategy'], c['secondary_strategy'])})"
         cards.append({"rank": c["rank"], "label": label, "title": None, "numbers": _numbers(film, c),
                       "context": _context(c.get("rationale")), "sources": _sources(film, c, data_date, weekend, imdb),
-                      "exploration": bool(c.get("exploration"))})
+                      "exploration": bool(c.get("exploration")), "_film": film, "_cand": c})
         if len(cards) >= limit:
             break
     return cards
+
+
+def _credits(tmdb_id, cache_path: str) -> dict:
+    """Genres, director, top cast and franchise from TMDB (cached; free API)."""
+    cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
+    key = str(tmdb_id)
+    if key not in cache and tmdb_id and int(tmdb_id) > 0:
+        try:
+            from faramir.tmdb import get_movie_details
+            d = get_movie_details(int(tmdb_id))
+            cache[key] = {"genres": d.get("genres") or [], "director": d.get("director") or "",
+                          "cast": (d.get("lead_cast") or [])[:3], "collection": d.get("collection_name") or ""}
+        except Exception:  # noqa: BLE001
+            cache[key] = {}
+        json.dump(cache, open(cache_path, "w"), indent=1)
+    return cache.get(key, {})
+
+
+def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool) -> str:
+    """Build each card's title brief; with live=True, write titles with the Aragorn method."""
+    from faramir.analytics import cerebro_snapshot as CS
+    from faramir.titles import aragorn, brief as brief_mod, data as tdata
+
+    snap_path = os.path.join(ARWEN, "cerebro_MW.csv")
+    if not cards or not os.path.exists(snap_path):
+        return "titles: no Cerebro snapshot available" if cards else ""
+    snap = CS.load(snap_path)
+    pool = tdata.desk_pool(snap)
+    baseline = round(sum(a.sessions or 0 for a in pool) / len(pool)) if pool else 0
+    phrases, pw_source = tdata.load_power_words(None, os.path.join(local_store.STORE_DIR, "power_words_sheet.tsv"))
+    tdata.measure_phrases(phrases, pool)
+    corpus = json.load(open(os.path.join(ROOT, "data", "corpus.v2.json")))["films"]
+    others = sorted({f["title"] for f in corpus if " " in f["title"]}
+                    | {c["_film"]["title"] for c in cards}, key=len, reverse=True)
+    data_date = (report.get("source_dates") or {}).get("daily_chart")
+    weekend = (report.get("weekend_strategies") or {}).get("weekend_start")
+    briefs_dir = os.path.join(out_dir, "title_briefs")
+    os.makedirs(briefs_dir, exist_ok=True)
+    client = None
+    if live:
+        import anthropic
+        client = anthropic.Anthropic()
+    tokens = {"input_tokens": 0, "output_tokens": 0}
+    for i, c in enumerate(cards, 1):
+        film, cand = c["_film"], c["_cand"]
+        credits = _credits(film.get("tmdb_id"), os.path.join(local_store.STORE_DIR, "tmdb_details.json"))
+        b = brief_mod.build(film, cand, credits, data_date, weekend, c["sources"], pool, baseline, phrases)
+        with open(os.path.join(briefs_dir, f"{i:02d}_{cand.get('strategy')}.txt"), "w") as f:
+            f.write(b.user_message())
+        if not live:
+            c["title_note"] = "brief ready (run with --titles to write it)"
+            continue
+        t = aragorn.write(b, client, [o for o in others if o not in b.names])
+        c.update({"title": t.title, "alternative": t.alternative, "title_verdict": t.verdict,
+                  "title_logic": t.note, "title_options": t.options})
+        if t.verdict == "kill":
+            c["title_note"] = "Aragorn method says the story is too soft to run: " + t.note
+        elif not t.title:
+            c["title_note"] = f"no title passed the fact check ({t.verdict})"
+        for k in tokens:
+            tokens[k] += t.usage.get(k, 0)
+    cost = tokens["input_tokens"] * 3 / 1e6 + tokens["output_tokens"] * 15 / 1e6
+    return (f"titles: {pw_source}; Cerebro News+Flash baseline S/A {baseline:,} ({len(pool):,} articles, "
+            f"as of {snap.as_of}); briefs in {briefs_dir}"
+            + (f"; {tokens['input_tokens']:,} in / {tokens['output_tokens']:,} out tokens ≈ ${cost:.2f}" if live else ""))
 
 
 def render(cards: list[dict], run_date: date, report: dict) -> str:
@@ -215,7 +280,12 @@ def render(cards: list[dict], run_date: date, report: dict) -> str:
         out.append("_No story candidates today._")
     for i, c in enumerate(cards, 1):
         out.append(f"**{i}. {c['label'].upper()}**" + ("  _(test slot)_" if c.get("exploration") else ""))
-        out.append(f"**{c['title']}**" if c["title"] else "_Title: pending (titles are the next build step)_")
+        if c["title"]:
+            out.append(f"**{c['title']}**")
+            if c.get("alternative"):
+                out.append(f"_Alternative: {c['alternative']}_")
+        else:
+            out.append(f"_Title: {c.get('title_note') or 'not written (run with --titles)'}_")
         out += [f"- {n}" for n in c["numbers"]]
         if c["context"]:
             out.append(c["context"])
@@ -228,11 +298,13 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None, help="run date YYYY-MM-DD (default today; the chart used is the day before)")
     ap.add_argument("--claude", action="store_true", help="run the live Claude selection and titles (paid call)")
+    ap.add_argument("--titles", action="store_true",
+                    help="write titles with the Aragorn method (one paid Claude call per card)")
     ap.add_argument("--cards", type=int, default=8, help="maximum cards to show")
     ap.add_argument("--all", action="store_true", help="review mode: show every ranked story, not just today's slots")
     args = ap.parse_args(argv)
     run_date = date.fromisoformat(args.date) if args.date else date.today()
-    names = ("TMDB_API_KEY", "ANTHROPIC_API_KEY") if args.claude else ("TMDB_API_KEY",)
+    names = ("TMDB_API_KEY", "ANTHROPIC_API_KEY") if (args.claude or args.titles) else ("TMDB_API_KEY",)
     local_store.load_env(names)
     if args.claude:
         REAL_HOSTS.add("api.anthropic.com")
@@ -281,9 +353,13 @@ def main(argv=None) -> int:
     cards = build_cards(result["payload"], report, picks, imdb, args.cards)
     out_dir = os.path.join(ROOT, "out", "cards", run_date.isoformat())
     os.makedirs(out_dir, exist_ok=True)
+    titles_report = write_titles(cards, gc, report, out_dir, live=args.titles)
     md = render(cards, run_date, report)
     open(os.path.join(out_dir, "cards.md"), "w").write(md)
-    json.dump(cards, open(os.path.join(out_dir, "cards.json"), "w"), indent=1)
+    json.dump([{k: v for k, v in c.items() if not k.startswith("_")} for c in cards],
+              open(os.path.join(out_dir, "cards.json"), "w"), indent=1)
+    if titles_report:
+        print(titles_report)
     print(md)
     print(f"\nSaved to {out_dir}")
     return 0
