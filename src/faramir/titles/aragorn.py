@@ -54,19 +54,18 @@ def _parse(text: str) -> list[dict]:
 MAX_TRIMS = 2
 TRIM_PROMPT = """You repair MovieWeb News titles: at most {n} characters, plus any fix listed after the title. Follow the MovieWeb Title Crafting Rules
 trimming order: cut the untested word first, the redundant fact second, the genre modifier third. Never cut
-"Officially", never shorten "Action Thriller", and never strip the genre from a masked film ("a Best
+"Officially" or "Box Office", never shorten the genre wording, and never strip the genre from a masked film ("a Best
 Picture-Winning Crime Thriller" keeps "Crime Thriller"). Keep the same facts, the same named films and
 people, and the same tense. Add nothing.
 Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
 
 
-FIXABLE = ("too_long", "genre_phrase", "masked_comparison_needs_genre")
+FIXABLE = ("too_long", "genre_phrase", "masked_comparison_needs_genre", "box_office_missing", "takeover_needs_previous_leader")
 # Deterministic cuts, in the Title Crafting Rules' trimming order (untested words, redundant facts, then
 # modifiers). Never touches "Officially", "Action Thriller" or a masked film's genre.
-CUTS = [(r" at the Worldwide Box Office\b", " Worldwide"), (r" at the Domestic Box Office\b", " Domestically"),
-        (r"\bIs Closing In On\b", "Closes In On"), (r"\bIs About to Pass\b", "Nears"),
-        (r"\b(?:Psychological|Gritty|New|Raunchy|Long-Awaited|Disturbing) (?=(?:[A-Z][\w-]* )?(?:Thriller|Comedy|Drama|Epic)\b)", ""),
-        (r" at the Box Office\b", "")]
+CUTS = [(r"\bIs Closing In On\b", "Closes In On"), (r"\bOpening Weekend\b", "Debut"), (r"\bWith an? ", "With "),
+        (r"\b(?:Psychological|Gritty|New|Raunchy|Long-Awaited|Disturbing) (?=(?:[A-Z][\w-]* )?(?:Thriller|Comedy|Drama|Epic|Movie|Film)\b)", ""),
+        (r" at the Worldwide Box Office\b", " at the Global Box Office"), (r"\bthe Weekend Box Office\b", "the Box Office")]
 
 
 def shorten(title: str, limit: int) -> str:
@@ -124,6 +123,13 @@ def write(brief, client, other_titles: list[str]) -> Titled:
         if c.ok:
             passing.append(o)
     if not passing:
+        # Editors keep final judgment: if the only problem left is length, give the best idea and flag it.
+        long_only = [o for o in options if o.get("title") and o["check"]["reasons"]
+                     and all(x.startswith("too_long") for x in o["check"]["reasons"])]
+        if long_only:
+            best = min(long_only, key=lambda o: len(o["title"]))
+            return Titled(best["title"], None, options, "over_length",
+                          f"{len(best['title'])} characters: over the cap, editor to trim", usage)
         return Titled(None, None, options, "none_passed", "no option passed the fact check", usage)
     return Titled(passing[0]["title"], passing[1]["title"] if len(passing) > 1 else None, options, "ok",
                   passing[0].get("logic", ""), usage)

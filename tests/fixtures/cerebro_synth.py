@@ -1,8 +1,10 @@
 """Synthetic sanitized Cerebro snapshots (invented titles and figures; the real column layout)."""
 
+
 from __future__ import annotations
 
 import csv
+import hashlib
 from datetime import date, timedelta
 
 HEADER = ["title", "url", "pub_date", "pub_type", "brand", "segment", "net_cat", "pri_cat", "pri_tag", "tags",
@@ -14,7 +16,7 @@ AS_OF = date(2026, 10, 20)
 def row(title, sessions, days_old=30, content_type="News", page_type="Regular", pub_type="Publish", brand="MW",
         pri_tag="Box Office", tags="Box Office", impressions=2000, url=None):
     d = AS_OF - timedelta(days=days_old)
-    return {"title": title, "url": url or f"https://movieweb.com/{abs(hash(title)) % 10**8}/", "pub_date": f"{d} 10:00:00",
+    return {"title": title, "url": url or f"https://movieweb.com/{int(hashlib.sha1(title.encode()).hexdigest(), 16) % 10**8}/", "pub_date": f"{d} 10:00:00",
             "pub_type": pub_type, "brand": brand, "segment": "Movies", "net_cat": "movies", "pri_cat": "Movie News",
             "pri_tag": pri_tag, "tags": tags, "content_type": content_type, "page_type": page_type, "intent": "Short-Term",
             "sessions": str(sessions), "target_sessions": "5000", "pageviews": str(sessions), "discover_clicks": "0",

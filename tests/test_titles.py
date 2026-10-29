@@ -71,7 +71,7 @@ def test_fact_sheet_states_status_figures_and_who_may_be_named():
 
 def test_check_allows_evidence_backed_strong_wording_and_refuses_the_rest():
     b = mk(TAKEOVER)
-    assert check("DC's Gritty Thriller Officially Takes No. 1 at the Box Office With $24M", b).ok
+    assert check("DC's Gritty Thriller Officially Takes No. 1 From 'Street Fighter' at the Box Office With $24M", b).ok
     assert check("Clayface Dethrones 'Street Fighter' at the Weekend Box Office", b).ok          # rival on the sheet
     assert not check("Clayface Takes No. 2 at the Box Office", b).ok
     assert not check("Clayface Opens to $40M at the Box Office", b).ok
@@ -81,7 +81,7 @@ def test_check_allows_evidence_backed_strong_wording_and_refuses_the_rest():
     c = mk(CHASE)
     assert check("Resident Evil Is About to Pass The Sting at the Domestic Box Office", c).ok
     assert not check("Resident Evil Officially Passes The Sting", c).ok
-    assert check("Clayface Nearly Tops the Box Office", b).reasons == ["anti_pattern: almost/nearly/could"]
+    assert "anti_pattern: almost/nearly/could" in check("Clayface Nearly Tops the Box Office", b).reasons
 
 
 class FakeClient:
@@ -97,7 +97,7 @@ class FakeClient:
 
 def test_writer_uses_aragorns_prompt_and_keeps_only_checked_options():
     fake = FakeClient([{"mechanism": "MILESTONE", "title": "Clayface Takes No. 2 at the Box Office"},
-                       {"mechanism": "GENRE", "title": "DC's Gritty Thriller Officially Takes No. 1 at the Box Office"},
+                       {"mechanism": "GENRE", "title": "DC's Gritty Thriller Officially Takes No. 1 From 'Street Fighter' at the Box Office"},
                        {"mechanism": "STAR-LED", "title": "Clayface Dethrones 'Street Fighter' at the Weekend Box Office"}])
     t = aragorn.write(mk(TAKEOVER), fake, [])
     assert t.title.startswith("DC's Gritty") and t.alternative.startswith("Clayface Dethrones")
@@ -117,10 +117,10 @@ def test_writer_reports_a_kill_and_never_raises():
 
 def test_firsts_and_openings_need_the_fact_sheet():
     b = mk(TAKEOVER)
-    assert not check("DCU's First Sci-Fi Thriller Officially Tops the Box Office", b).ok
-    assert not check("Clayface Officially Takes No. 1 in Its Opening Weekend", b).ok
+    assert not check("DCU's First Sci-Fi Thriller Officially Tops 'Street Fighter' at the Box Office", b).ok
+    assert not check("Clayface Officially Takes No. 1 From Street Fighter in Its Opening Box Office Weekend", b).ok
     opening = mk({**TAKEOVER, "rationale": "Takeover · Clayface is No. 1 … in its opening weekend."})
-    assert opening.opening and check("Clayface Officially Takes No. 1 in Its Opening Weekend", opening).ok
+    assert opening.opening and check("Clayface Officially Takes No. 1 From Street Fighter in Its Opening Box Office Weekend", opening).ok
 
 
 def test_an_over_length_option_is_trimmed_then_rechecked():
@@ -128,12 +128,12 @@ def test_an_over_length_option_is_trimmed_then_rechecked():
         def create(self, **kw):
             self.calls.append(kw)
             if kw["max_tokens"] == 200:
-                return SimpleNamespace(content=[SimpleNamespace(text='{"title": "Clayface Officially Takes No. 1 at the Box Office"}')],
+                return SimpleNamespace(content=[SimpleNamespace(text='{"title": "Clayface Officially Takes No. 1 From Street Fighter at the Box Office"}')],
                                        usage=SimpleNamespace(input_tokens=100, output_tokens=20))
             return super().create(**kw)
     long = "Clayface, the Shapeshifting Supervillain Movie From the Studio Behind It All, Officially Takes No. 1 This Weekend"
     t = aragorn.write(mk(TAKEOVER), TrimClient([{"mechanism": "MILESTONE", "title": long}]), [])
-    assert t.title == "Clayface Officially Takes No. 1 at the Box Office" and t.options[0]["original_title"] == long
+    assert t.title == "Clayface Officially Takes No. 1 From Street Fighter at the Box Office" and t.options[0]["original_title"] == long
     assert t.usage["input_tokens"] == 9100
 
 
@@ -141,7 +141,7 @@ def test_the_gap_to_the_comparison_is_a_verified_figure():
     film = {**FILM, "domestic_today": 154_300_000}
     b = mk(CHASE, film)
     assert "Gap still to go: $1.7M" in b.fact_sheet
-    assert check("Resident Evil Is $1.7M Away From Passing The Sting", b).ok
+    assert check("Resident Evil Is $1.7M Away From Passing The Sting at the Box Office", b).ok
 
 
 def test_discovery_figures_are_stated_as_having_happened():
@@ -171,10 +171,10 @@ def test_genre_wording_is_ranked_by_movieweb_performance_among_accurate_options(
     assert b.film_genre_phrase == "Action Thriller" and b.comp_masked_as == "a Best Picture-Winning Thriller"
     assert "GENRE WORDING" in b.user_message() and "REQUIRED FOR THIS STORY" in b.user_message()
     assert "genres: Crime, Thriller, Western · Best Picture winner" in b.fact_sheet
-    assert check("Clayface's Action Thriller Is About to Pass a Best Picture-Winning Thriller", b).ok
-    assert not check("Clayface's Action-Adventure Thriller Is About to Pass 'The Sting'", b).ok
-    assert not check("Clayface's Thriller Is About to Pass 'The Sting'", b).ok
-    assert not check("Clayface's Action Thriller Is About to Pass a Best Picture Winner", b).ok
+    assert check("Clayface's Action Thriller Eyes a Best Picture-Winning Thriller at the Box Office", b).ok
+    assert not check("Clayface's Action-Adventure Thriller Eyes 'The Sting' at the Box Office", b).ok
+    assert not check("Clayface's Thriller Eyes 'The Sting' at the Box Office", b).ok
+    assert not check("Clayface's Action Thriller Eyes a Best Picture Winner at the Box Office", b).ok
     assert check("Clayface Is About to Pass 'The Sting' at the Box Office", b).ok      # no genre named: fine
 
 
@@ -183,3 +183,28 @@ def test_deterministic_shortening_keeps_protected_words():
     short = aragorn.shorten(t, 95)
     assert len(short) <= 95 and "Best Picture-Winning Crime Thriller" in short and "Anne Hathaway" in short
     assert aragorn.shorten("Brad Pitt's Action Thriller Officially Passes X at the Worldwide Box Office", 60).count("Action Thriller") == 1
+
+
+def test_house_rules_box_office_takeover_leader_and_never_blank():
+    b = mk(TAKEOVER)
+    assert any(r.startswith("box_office_missing") for r in check("Clayface Takes No. 1 From Street Fighter", b).reasons)
+    assert any(r.startswith("takeover_needs_previous_leader") for r in check("Clayface Takes No. 1 at the Box Office", b).reasons)
+    assert "Name the film it replaced at No. 1: 'Street Fighter'" in b.user_message() and "\"Box Office\"" in b.user_message()
+    long = ("Clayface, the Shapeshifting Supervillain Movie From the Studio Behind It All, Officially Takes No. 1 From "
+            "Street Fighter at the Box Office")
+    class NoTrim(FakeClient):
+        def create(self, **kw):
+            if kw["max_tokens"] == 200:
+                raise RuntimeError("trim unavailable")
+            return super().create(**kw)
+    t = aragorn.write(b, NoTrim([{"mechanism": "MILESTONE", "title": long}]), [])
+    assert t.title == long and t.verdict == "over_length" and "editor to trim" in t.note
+
+
+def test_verbs_are_ranked_by_movieweb_titles():
+    from faramir.titles.data import verb_options
+    pool = [art(f"Film Eyes Record {i}", 12_000) for i in range(5)] + [art("Film Is About to Pass X", 90_000)]
+    opts = verb_options("anticipated", pool)
+    assert opts[0]["phrase"] == "Eyes" and opts[0]["n"] == 5        # one big use doesn't count as proven
+    assert all(o["phrase"] in ("Hits", "Passes", "Becomes", "Sets New", "Smashes", "Beats", "Tops", "Crosses", "Takes",
+                               "Officially Passes", "Officially Beats", "Officially Takes") for o in verb_options("confirmed", pool))

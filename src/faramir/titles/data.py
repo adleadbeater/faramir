@@ -178,6 +178,24 @@ def genre_options(tmdb_genres: list[str], pool: list[Article], phrases: list[Phr
     return sorted(out, key=lambda o: -o["rank_sa"])
 
 
+# Candidate verbs by tense; ranked on MovieWeb News + Flash titles. Accuracy comes first: a story that
+# hasn't happened never gets a completed verb (titles.check enforces it).
+VERBS = {"anticipated": ["Eyes", "Is Set to Pass", "Closes In On", "Nears", "Is on Track to Pass", "Is About to Pass"],
+         "confirmed": ["Hits", "Passes", "Becomes", "Sets New", "Smashes", "Beats", "Tops", "Crosses", "Takes",
+                       "Officially Passes", "Officially Beats", "Officially Takes"]}
+MIN_VERB_N = 3
+
+
+def verb_options(status: str, pool: list[Article]) -> list[dict]:
+    out = []
+    for v in VERBS["anticipated" if status != "confirmed" else "confirmed"]:
+        stem = re.sub(r"^Is |^Officially ", "", v)
+        rx = re.compile(r"(?<![\w-])" + re.escape(v if v.startswith("Officially") else stem) + r"(?![\w])", re.I)
+        st = _stats([a for a in pool if rx.search(a.title)])
+        out.append({"phrase": v, "sa": st["sa"], "n": st["articles"]})
+    return sorted(out, key=lambda o: (o["n"] < MIN_VERB_N, -o["sa"]))
+
+
 def genre_block(film: str, options: list[dict], comp: str | None = None, comp_options: list[dict] | None = None) -> str:
     def rows(opts):
         return [f"  - {o['phrase']}: S/A ≈ {o['sa']:,} · {o['n']} uses · {o['basis']}" for o in opts[:6]]

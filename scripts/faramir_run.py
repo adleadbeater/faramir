@@ -279,6 +279,8 @@ def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, 
                   "title_logic": t.note, "title_options": t.options})
         if t.verdict == "kill":
             c["title_note"] = "Pass: " + _first_reason(t.note)
+        elif t.verdict == "over_length":
+            c["title_note"] = t.note
         elif not t.title:
             c["title_note"] = f"no title passed the fact check ({t.verdict})"
         for k in tokens:
@@ -298,7 +300,7 @@ def render(cards: list[dict], run_date: date, report: dict) -> str:
     for i, c in enumerate(cards, 1):
         out.append(f"**{i}. {c['label'].upper()}**" + ("  _(test slot)_" if c.get("exploration") else ""))
         if c["title"]:
-            out.append(f"**{c['title']}**")
+            out.append(f"**{c['title']}**" + (f"  _({c['title_note']})_" if c.get("title_verdict") == "over_length" else ""))
             if c.get("alternative"):
                 out.append(f"_Alternative: {c['alternative']}_")
         else:

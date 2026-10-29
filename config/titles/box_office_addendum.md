@@ -17,6 +17,12 @@ Judge everything against the **MovieWeb News + Flash News** baseline (S/A ≈ 8,
 - **The comparison film is the hook** when readers know it. Name it; that's the giant-killer story.
 - Use only phrases from the Power Words block that accurately describe the story.
 
+### Rob's house rules for box-office titles
+- **Every title includes "Box Office".** No exceptions.
+- **A Takeover names the film it replaced at No. 1.**
+- **Verbs are chosen by MovieWeb performance,** like genre words: the strongest proven verb that is accurate for the story's status (the REQUIRED section lists them with their figures). "About to Pass" has never been used in a MovieWeb News title.
+- **Always deliver a title.** If you can't fit the cap, give your best idea anyway; the editor trims, and editors keep final judgment on every title.
+
 ### Accuracy (overrides the data)
 - Completed wording ("Passes", "Beats", "Takes No. 1", "Crosses") only for what the fact sheet marks as **happened**. For **anticipated** events use forward wording ("Is About to Pass", "Closing In On", "On Pace to"). Never "Almost", "Nearly" or "Could".
 - Ranks, records and superlatives ("No. 1", "Top 3", "Biggest", "Record", "Career-Best") only exactly as the fact sheet states them. "Beats/Dethrones [film]" only when the fact sheet names that film as the one it beat or replaced.

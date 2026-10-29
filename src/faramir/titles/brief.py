@@ -48,6 +48,7 @@ class Brief:
     comp_title: str | None = None
     comp_masked_as: str | None = None
     genre_block: str = ""
+    verb_options: list = field(default_factory=list)
     cerebro_block: str = ""
     power_block: str = ""
 
@@ -66,6 +67,15 @@ class Brief:
             required.append(f"- When you name {self.film['title']}'s genre, use \"{self.film_genre_phrase}\": its best-performing "
                             f"accurate genre wording on MovieWeb (S/A ≈ {top['sa']:,}, {top['n']} uses). Don't swap in a "
                             "weaker genre word or blend genres (\"Action-Adventure Thriller\").")
+        required.append("- Every title must include \"Box Office\".")
+        if self.strategy == "takeover" and self.rank_evidence.get("previous_leader"):
+            required.append(f"- Name the film it replaced at No. 1: '{self.rank_evidence['previous_leader']}'.")
+        proven = [o for o in self.verb_options if o["n"] >= data.MIN_VERB_N]
+        if proven:
+            listing = "; ".join(f"\"{o['phrase']}\" (S/A ≈ {o['sa']:,}, {o['n']} uses)" for o in proven[:4])
+            required.append(f"- Verb: use the strongest proven verb that is accurate for a story that "
+                            f"{'HAS HAPPENED' if self.status == 'confirmed' else 'HAS NOT HAPPENED YET'}: {listing}. "
+                            "Verbs with no MovieWeb track record (\"About to Pass\" has never been used) are a last resort.")
         if self.comp_title and self.comp_masked_as:
             required.append(f"- If you don't name '{self.comp_title}', describe it as \"{self.comp_masked_as}\": a masked "
                             "film must keep its genre (never just \"a Best Picture Winner\" or \"a Classic\").")
@@ -159,7 +169,8 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
     lines.append("MAY BE NAMED: films: " + "; ".join(f"'{n}'" for n in dict.fromkeys(names))
                  + (f"; people: {', '.join(people)}" if people else ""))
     lines.append("SOURCES: " + " · ".join(sources))
-    rank_evidence = {"chart_rank": v.get("rank"), "tier": v.get("tier"), "weekends": v.get("weekends")}
+    rank_evidence = {"chart_rank": v.get("rank"), "tier": v.get("tier"), "weekends": v.get("weekends"),
+                     "previous_leader": v.get("previous_leader")}
     opening = v.get("week_number") == 1 or "opening weekend" in (cand.get("rationale") or "").lower()
     if opening:
         lines.insert(4, "- This is the film's OPENING weekend.")
@@ -174,6 +185,7 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
                  film_genre_phrase=film_opts[0]["phrase"] if film_opts else None, film_genre_options=film_opts,
                  comp_title=comp.get("title"), comp_masked_as=masked_descriptor(comp, comp_opts) if comp else None,
                  genre_block=data.genre_block(title, film_opts, comp.get("title"), comp_opts),
+                 verb_options=data.verb_options(status, pool),
                  cerebro_block=data.demand_block(d, baseline_sa), power_block=data.power_words_block(phrases, baseline_sa))
 
 

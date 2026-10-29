@@ -68,6 +68,11 @@ def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
             r.append(f"rank_unsupported: '{m.group(0)}'")
     if RECORD_RE.search(t) and brief.strategy != "star_record":
         r.append(f"record_unsupported: '{RECORD_RE.search(t).group(0)}'")
+    if not re.search(r"box[- ]office", t, re.I):
+        r.append("box_office_missing: every title says 'Box Office' (Rob, 2026-10-28)")
+    leader = (getattr(brief, "rank_evidence", None) or {}).get("previous_leader")
+    if brief.strategy == "takeover" and leader and not re.search(re.escape(leader), t, re.I):
+        r.append(f"takeover_needs_previous_leader: name the film it replaced at No. 1, '{leader}'")
     if FIRST_RE.search(t):
         r.append(f"claim_unsupported: '{FIRST_RE.search(t).group(0)}' (firsts and onlys aren't on the fact sheet)")
     if OPENING_RE.search(t) and not getattr(brief, "opening", False):
