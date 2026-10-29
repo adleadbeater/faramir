@@ -526,6 +526,15 @@ def _run(ctx, run_date=None):
         if int(r.get("dom_stale_days") or 0) < 2 and int(r.get("ww_stale_days") or 0) < 2
     ]
 
+    # A film that isn't on today's daily chart has no new figure: its numbers are from an earlier chart
+    # (weekday charts can list as few as 10 films). No daily story is built on it; it can still carry
+    # weekend stories through the weekend chart.
+    off_chart = [r for r in active_films_raw if str(r.get("last_seen")) != str(today)]
+    if off_chart:
+        logger.info("Not on today's daily chart (no daily stories): %s", [r.get("canonical_title") for r in off_chart])
+        runtime.note("not_on_todays_chart", [r.get("canonical_title") for r in off_chart])
+    active_films_raw = [r for r in active_films_raw if str(r.get("last_seen")) == str(today)]
+
     # Step 6: Enrich active films with full TMDB metadata
     enriched_active: list[dict] = []
     for row in active_films_raw:

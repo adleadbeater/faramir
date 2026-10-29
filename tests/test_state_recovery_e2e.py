@@ -64,7 +64,10 @@ def test_recovery_run_restores_and_posts_no_picks_then_next_run_is_normal(env):
     assert main(env) == 0
     from tests.test_run_daily_corpus import pick_msgs
 
-    assert len(pick_msgs(env["slack"])) == 1
+    # The editor's override (999) can't be fetched from TMDB, so the film isn't identified on today's
+    # chart: no daily story is built from its earlier figures (2026-10-29 fix), and the run is otherwise normal.
+    report, _, _ = artifacts(env)
+    assert report["not_on_todays_chart"] == ["Beta Story"] and pick_msgs(env["slack"]) == []
     m = parse_meta(book(env).worksheet(META_TAB).data)
     assert m["state"]["status"] == "ok" and m["lock"]["status"] == "released"
 
