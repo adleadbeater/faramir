@@ -57,7 +57,9 @@ CHASE = {"kind": "about_to_pass", "strategy": "chase", "axis": "domestic", "thre
 
 
 def mk(cand, film=FILM):
-    return brief_mod.build(film, cand, {"genres": ["Horror", "Thriller"], "director": "James Watkins", "cast": ["A B"]},
+    return brief_mod.build(film, cand, {"genres": ["Horror", "Thriller"], "director": "James Watkins", "cast": ["A B"],
+                                       "keywords": ["gore", "dc universe (dcu)"], "companies": ["DC Studios"],
+                                       "certification": "R"},
                            "2026-10-27", "2026-10-23", ["https://tn"], POOL, 8_000, [])
 
 
@@ -71,7 +73,7 @@ def test_fact_sheet_states_status_figures_and_who_may_be_named():
 
 def test_check_allows_evidence_backed_strong_wording_and_refuses_the_rest():
     b = mk(TAKEOVER)
-    assert check("DC's Gritty Thriller Officially Takes No. 1 From 'Street Fighter' at the Box Office With $24M", b).ok
+    assert check("DC's Brutal Thriller Officially Takes No. 1 From 'Street Fighter' at the Box Office With $24M", b).ok
     assert check("Clayface Dethrones 'Street Fighter' at the Weekend Box Office", b).ok          # rival on the sheet
     assert not check("Clayface Takes No. 2 at the Box Office", b).ok
     assert not check("Clayface Opens to $40M at the Box Office", b).ok
@@ -97,10 +99,10 @@ class FakeClient:
 
 def test_writer_uses_aragorns_prompt_and_keeps_only_checked_options():
     fake = FakeClient([{"mechanism": "MILESTONE", "title": "Clayface Takes No. 2 at the Box Office"},
-                       {"mechanism": "GENRE", "title": "DC's Gritty Thriller Officially Takes No. 1 From 'Street Fighter' at the Box Office"},
+                       {"mechanism": "GENRE", "title": "DC's Brutal Thriller Officially Takes No. 1 From 'Street Fighter' at the Box Office"},
                        {"mechanism": "STAR-LED", "title": "Clayface Dethrones 'Street Fighter' at the Weekend Box Office"}])
     t = aragorn.write(mk(TAKEOVER), fake, [])
-    assert t.title.startswith("DC's Gritty") and t.alternative.startswith("Clayface Dethrones")
+    assert t.title.startswith("DC's Brutal") and t.alternative.startswith("Clayface Dethrones")
     sent = fake.calls[0]
     assert "You are aragorn" in sent["system"] and "Box-office stories from Faramir" in sent["system"]
     assert sent["model"] == aragorn.MODEL and "ARTICLE BODY" in sent["messages"][0]["content"]
@@ -201,10 +203,33 @@ def test_house_rules_box_office_takeover_leader_and_never_blank():
     assert t.title == long and t.verdict == "over_length" and "editor to trim" in t.note
 
 
-def test_verbs_are_ranked_by_movieweb_titles():
-    from faramir.titles.data import verb_options
-    pool = [art(f"Film Eyes Record {i}", 12_000) for i in range(5)] + [art("Film Is About to Pass X", 90_000)]
-    opts = verb_options("anticipated", pool)
-    assert opts[0]["phrase"] == "Eyes" and opts[0]["n"] == 5        # one big use doesn't count as proven
-    assert all(o["phrase"] in ("Hits", "Passes", "Becomes", "Sets New", "Smashes", "Beats", "Tops", "Crosses", "Takes",
-                               "Officially Passes", "Officially Beats", "Officially Takes") for o in verb_options("confirmed", pool))
+def test_verbs_are_ranked_by_movieweb_titles_within_what_is_true():
+    from faramir.titles.data import verb_group, verb_options
+    pool = ([art(f"Film Eyes Record {i}", 12_000) for i in range(5)] + [art(f"Film Set to Win {i}", 9_000) for i in range(4)]
+            + [art(f"Film Nears Goal {i}", 2_000) for i in range(6)] + [art("Film Is About to Pass X", 90_000)])
+    opts = verb_options(verb_group("chase", "anticipated", True), pool)
+    assert [o["phrase"] for o in opts if o["allowed"]] == ["Eyes", "Is Set to Pass"]   # one big use isn't proven
+    assert next(o for o in opts if o["phrase"] == "Is About to Pass")["basis"] == "unproven"
+    assert verb_group("takeover", "confirmed", False) == "number_one" and verb_group("overtake", "confirmed", True) == "pass"
+    assert verb_group("streak", "confirmed", False) is None
+
+
+def test_weak_verb_is_rejected_and_repairable():
+    pool = [art(f"Film Eyes Record {i}", 12_000) for i in range(5)] + [art(f"Film Set to Win {i}", 9_000) for i in range(4)]
+    b = brief_mod.build(FILM, CHASE, {"genres": ["Horror"]}, "2026-10-27", None, ["https://tn"], pool, 8_000, [])
+    c = check("Resident Evil Is About to Pass The Sting at the Domestic Box Office", b)
+    assert not c.ok and c.reasons[0].startswith("verb_weak: use 'Eyes' or 'Is Set to Pass'")
+    assert check("Resident Evil Eyes The Sting at the Domestic Box Office", b).ok
+    assert "Verb: use one of the strongest proven verbs" in b.user_message() and "Not: " in b.user_message()
+
+
+def test_descriptors_need_data_behind_them():
+    b = mk(TAKEOVER)
+    assert any(r.startswith("descriptor_unsupported: drop 'Raunchy'") for r in
+               check("Clayface's Raunchy Thriller Takes No. 1 From 'Street Fighter' at the Box Office", b).reasons)
+    assert check("DCU's R-Rated Thriller Takes No. 1 From 'Street Fighter' at the Box Office", b).ok
+    assert not check("Marvel's Thriller Takes No. 1 From 'Street Fighter' at the Box Office", b).ok
+    c = mk(CHASE)    # The Sting: $156M domestic, $156M worldwide
+    assert check("Resident Evil Is About to Pass a Classic Hit at the Domestic Box Office", c).ok
+    assert not check("Resident Evil Is About to Pass a Major Hit at the Domestic Box Office", c).ok
+    assert "Supported: Clayface: " in b.user_message() and "DCU" in b.user_message()

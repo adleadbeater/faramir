@@ -49,6 +49,7 @@ class Brief:
     comp_masked_as: str | None = None
     genre_block: str = ""
     verb_options: list = field(default_factory=list)
+    descriptor_facts: list = field(default_factory=list)
     cerebro_block: str = ""
     power_block: str = ""
 
@@ -70,12 +71,22 @@ class Brief:
         required.append("- Every title must include \"Box Office\".")
         if self.strategy == "takeover" and self.rank_evidence.get("previous_leader"):
             required.append(f"- Name the film it replaced at No. 1: '{self.rank_evidence['previous_leader']}'.")
-        proven = [o for o in self.verb_options if o["n"] >= data.MIN_VERB_N]
-        if proven:
-            listing = "; ".join(f"\"{o['phrase']}\" (S/A ≈ {o['sa']:,}, {o['n']} uses)" for o in proven[:4])
-            required.append(f"- Verb: use the strongest proven verb that is accurate for a story that "
-                            f"{'HAS HAPPENED' if self.status == 'confirmed' else 'HAS NOT HAPPENED YET'}: {listing}. "
-                            "Verbs with no MovieWeb track record (\"About to Pass\" has never been used) are a last resort.")
+        allowed = [o for o in self.verb_options if o["allowed"]]
+        if allowed:
+            listing = "; ".join(f"\"{o['phrase']}\" (S/A ≈ {o['sa']:,}, {o['n']} uses, {o['basis']})" for o in allowed)
+            weak = [o["phrase"] for o in self.verb_options if not o["allowed"]]
+            required.append(f"- Verb: use one of the strongest proven verbs that are accurate for this story: {listing}. "
+                            f"Not: {', '.join(weak)} (weaker or never used in MovieWeb News titles)." if weak else
+                            f"- Verb: use one of the strongest proven verbs that are accurate for this story: {listing}.")
+        who = [self.film["title"], self.comp_title]
+        per_film = [f"{who[i]}: {', '.join(ok) if ok else 'none'}" for i, f in enumerate(self.descriptor_facts[:2])
+                    for ok in [data.supported_descriptors([f])]]
+        unsupported = [x for x in ("Raunchy", "Gritty", "Steamy", "Blockbuster", "Hit")
+                       if x not in data.supported_descriptors(self.descriptor_facts)][:3]
+        required.append("- Descriptors (tone, franchise, studio, success words like \"Hit\" or \"Major\") must be backed by "
+                        "TMDB or the figures, and describe the film they're backed for. Supported: " + "; ".join(per_film)
+                        + ". Any other descriptor" + (f" ({', '.join(repr(x) for x in unsupported)}...)" if unsupported else "")
+                        + " is rejected. Genre wording is covered above.")
         if self.comp_title and self.comp_masked_as:
             required.append(f"- If you don't name '{self.comp_title}', describe it as \"{self.comp_masked_as}\": a masked "
                             "film must keep its genre (never just \"a Best Picture Winner\" or \"a Classic\").")
@@ -102,7 +113,7 @@ def _status(cand: dict) -> str:
 
 
 def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: str | None, sources: list[str],
-          pool: list, baseline_sa: int, phrases: list) -> Brief:
+          pool: list, baseline_sa: int, phrases: list, comp_credits: dict | None = None) -> Brief:
     strategy = cand.get("strategy") or "overtake"
     status = _status(cand)
     title = card_film["title"]
@@ -117,7 +128,11 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
              f"STATUS: {STATUS_WORDS.get(status, status)}.",
              f"FILM: {title}" + (f" · genres (TMDB): {', '.join(genres)}" if genres else "")
              + (f" · director: {director}" if director else "") + (f" · top-billed cast: {', '.join(cast)}" if cast else "")
-             + (f" · franchise: {collection}" if collection else ""), "VERIFIED FIGURES:"]
+             + (f" · franchise: {collection}" if collection else "")
+             + (f" · rated {credits['certification']}" if credits.get("certification") else "")
+             + (f" · studios: {', '.join(credits['companies'][:4])}" if credits.get("companies") else "")
+             + (f" · TMDB keywords: {', '.join(credits['keywords'][:15])}" if credits.get("keywords") else ""),
+             "VERIFIED FIGURES:"]
     if cand.get("kind") != "event":
         dom, ww = card_film.get("domestic_today"), card_film.get("worldwide_today")
         lines.append(f"- {title}: {money(dom)} domestic total through {data_date}"
@@ -180,12 +195,17 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
     d = data.demand(pool, [title, director, *cast, collection, comp.get("title") or ""],
                     [data.GENRE_TAGS.get(g, g) for g in genres[:2]] + ["Box Office"])
     draft = _draft(strategy, title, comp, cand, v)
+    facts = [data.film_facts(credits, card_film.get("domestic_today"), card_film.get("worldwide_today"))]
+    if comp:
+        facts.append(data.film_facts({**(comp_credits or {}), "genres": comp.get("genres") or (comp_credits or {}).get("genres")},
+                                     comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")))
     return Brief(strategy, status, card_film, draft, (cand.get("rationale") or "").split(" · sources:")[0],
                  "\n".join(lines), figures, names, people, rank_evidence, opening=opening, genres=genres,
                  film_genre_phrase=film_opts[0]["phrase"] if film_opts else None, film_genre_options=film_opts,
                  comp_title=comp.get("title"), comp_masked_as=masked_descriptor(comp, comp_opts) if comp else None,
                  genre_block=data.genre_block(title, film_opts, comp.get("title"), comp_opts),
-                 verb_options=data.verb_options(status, pool),
+                 verb_options=data.verb_options(data.verb_group(strategy, status, bool(comp)), pool, phrases),
+                 descriptor_facts=facts,
                  cerebro_block=data.demand_block(d, baseline_sa), power_block=data.power_words_block(phrases, baseline_sa))
 
 

@@ -20,7 +20,8 @@ Judge everything against the **MovieWeb News + Flash News** baseline (S/A ≈ 8,
 ### Rob's house rules for box-office titles
 - **Every title includes "Box Office".** No exceptions.
 - **A Takeover names the film it replaced at No. 1.**
-- **Verbs are chosen by MovieWeb performance,** like genre words: the strongest proven verb that is accurate for the story's status (the REQUIRED section lists them with their figures). "About to Pass" has never been used in a MovieWeb News title.
+- **Verbs are chosen by MovieWeb performance,** like genre words: each story type has its own accurate verbs (a chase "Eyes" or "Is Set to Pass"; a new No. 1 "Hits No. 1"), ranked on News + Flash News titles in Cerebro, and a title must use one of the strongest proven ones the REQUIRED section lists. "About to Pass" has never been used in a MovieWeb News title.
+- **Descriptors need evidence.** Tone words ("Raunchy", "Gritty"), franchise and studio labels ("DCU's", "Marvel's") and success words ("Hit", "Major") are allowed only when TMDB (genres, keywords, studios, rating) or the box-office figures back them, for the film they describe. The REQUIRED section lists what's supported.
 - **Always deliver a title.** If you can't fit the cap, give your best idea anyway; the editor trims, and editors keep final judgment on every title.
 
 ### Accuracy (overrides the data)

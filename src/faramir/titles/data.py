@@ -178,22 +178,144 @@ def genre_options(tmdb_genres: list[str], pool: list[Article], phrases: list[Phr
     return sorted(out, key=lambda o: -o["rank_sa"])
 
 
-# Candidate verbs by tense; ranked on MovieWeb News + Flash titles. Accuracy comes first: a story that
-# hasn't happened never gets a completed verb (titles.check enforces it).
-VERBS = {"anticipated": ["Eyes", "Is Set to Pass", "Closes In On", "Nears", "Is on Track to Pass", "Is About to Pass"],
-         "confirmed": ["Hits", "Passes", "Becomes", "Sets New", "Smashes", "Beats", "Tops", "Crosses", "Takes",
-                       "Officially Passes", "Officially Beats", "Officially Takes"]}
+# Verbs by what they say. A story only gets verbs that are true for it (a chase that hasn't happened never
+# "Passes"), ranked by MovieWeb performance: News + Flash desk titles in Cerebro when the verb has
+# MIN_VERB_N+ uses there, otherwise the Power Words Sheet discounted by how hot the sheet runs. Each
+# entry: (verb as written in a title, regex that finds it, the word measured).
+VERB_GROUPS = {
+    "ahead": [("Eyes", r"eyes", "Eyes"), ("Is Set to Pass", r"(?:is )?set to", "Set to"),
+              ("Closes In On", r"clos(?:es|ing) in on", "Closes In On"), ("Nears", r"near(?:s|ing)", "Nears"),
+              ("Is on Track to Pass", r"(?:is )?on track to", "On Track"),
+              ("Is About to Pass", r"(?:is )?about to", "About to")],
+    "pass": [("Passes", r"passes", "Passes"), ("Beats", r"beats", "Beats"), ("Tops", r"tops", "Tops"),
+             ("Overtakes", r"overtakes", "Overtakes"), ("Surpasses", r"surpasses", "Surpasses"),
+             ("Topples", r"topples", "Topples"), ("Outshines", r"outshines", "Outshines"),
+             ("Outgrosses", r"outgrosses", "Outgrosses")],
+    "milestone": [("Hits", r"hits", "Hits"), ("Crosses", r"crosses", "Crosses"), ("Passes", r"passes", "Passes"),
+                  ("Tops", r"tops", "Tops"), ("Surpasses", r"surpasses", "Surpasses")],
+    "number_one": [("Hits No. 1", r"hits", "Hits"), ("Takes No. 1", r"takes", "Takes"), ("Leads", r"leads", "Leads"),
+                   ("Tops", r"tops", "Tops"), ("Topples", r"topples", "Topples"), ("Dethrones", r"dethrones", "Dethrones"),
+                   ("Dominates", r"dominates", "Dominates"), ("Conquers", r"conquers", "Conquers"),
+                   ("Wins", r"wins", "Wins")],
+    "hold": [("Remains No. 1", r"remains", "Remains"), ("Holds", r"holds", "Holds"), ("Stays", r"stays", "Stays"),
+             ("Leads", r"leads", "Leads"), ("Dominates", r"dominates", "Dominates")],
+}
 MIN_VERB_N = 3
+VERB_KEEP_WITHIN = 0.85    # a verb is allowed if its ranked S/A is within 15% of the best proven verb
+MIN_ALLOWED = 2            # always leave the writer a choice of two
 
 
-def verb_options(status: str, pool: list[Article]) -> list[dict]:
+def verb_group(strategy: str, status: str, has_comp: bool) -> str | None:
+    if strategy == "chase" or (status != "confirmed" and strategy in ("countdown", "overtake")):
+        return "ahead"
+    return {"takeover": "number_one", "hold": "hold", "dark_horse": "pass", "countdown": "milestone",
+            "overtake": "pass" if has_comp else "milestone"}.get(strategy)
+
+
+def sheet_heat(phrases: list[Phrase], min_n: int = SMALL_SAMPLE) -> float:
+    """How hot the Power Words Sheet runs against the desk: median desk S/A ÷ sheet S/A over phrases measured
+    in both (5+ desk uses). Used to discount a sheet figure when the desk has too few uses of a verb."""
+    ratios = sorted(p.desk_sa / p.sheet_sa for p in phrases if p.desk_n >= min_n and p.desk_sa and p.sheet_sa)
+    return ratios[len(ratios) // 2] if ratios else 0.5
+
+
+def verb_options(group: str | None, pool: list[Article], phrases: list[Phrase] | None = None) -> list[dict]:
+    """The group's verbs, ranked; "allowed" marks the ones a title may use (titles.check enforces it)."""
+    if not group:
+        return []
+    base = statistics.fmean([a.sessions or 0 for a in pool]) if pool else 0
+    sheet = {p.phrase.lower(): p for p in phrases or []}
+    heat = sheet_heat(phrases or [])
     out = []
-    for v in VERBS["anticipated" if status != "confirmed" else "confirmed"]:
-        stem = re.sub(r"^Is |^Officially ", "", v)
-        rx = re.compile(r"(?<![\w-])" + re.escape(v if v.startswith("Officially") else stem) + r"(?![\w])", re.I)
-        st = _stats([a for a in pool if rx.search(a.title)])
-        out.append({"phrase": v, "sa": st["sa"], "n": st["articles"]})
-    return sorted(out, key=lambda o: (o["n"] < MIN_VERB_N, -o["sa"]))
+    for verb, rx, word in VERB_GROUPS[group]:
+        st = _stats([a for a in pool if re.search(r"(?<![\w-])" + re.escape(word) + r"(?![\w])", a.title, re.I)])
+        sp = sheet.get(word.lower())
+        if st["articles"] >= MIN_VERB_N:
+            o = {"sa": st["sa"], "n": st["articles"], "basis": "cerebro_desk"}
+        elif sp and sp.sheet_uses >= MIN_VERB_N:
+            o = {"sa": round(sp.sheet_sa * heat), "n": sp.sheet_uses, "basis": f"power_words_sheet × {heat:.2f}"}
+        else:
+            o = {"sa": st["sa"], "n": st["articles"], "basis": "unproven"}
+        o.update(phrase=verb, regex=rx, proven=o["basis"] != "unproven",
+                 rank_sa=round((o["n"] * o["sa"] + SHRINK_K * base) / (o["n"] + SHRINK_K)) if o["basis"] != "unproven" else 0)
+        out.append(o)
+    out.sort(key=lambda o: (not o["proven"], -o["rank_sa"]))
+    proven = [o for o in out if o["proven"]]
+    for i, o in enumerate(out):
+        o["allowed"] = o["proven"] and (i < MIN_ALLOWED or o["rank_sa"] >= VERB_KEEP_WITHIN * proven[0]["rank_sa"])
+    return out
+
+
+# Descriptors a title may only use when the data backs them (Rob, 2026-10-29: "Raunchy", "DCU's" and
+# "Major Action Hit" were written with nothing behind them). Each: (label, title regex, test on one film's
+# facts). Facts: genres, TMDB keywords and production companies, US rating, franchise, domestic/worldwide.
+def _kw(*words):
+    return lambda f: any(w in k for k in f["keywords"] for w in words)
+
+
+def _co(*names):
+    return lambda f: any(n.lower() in c.lower() for c in f["companies"] for n in names)
+
+
+def _genre(*names):
+    return lambda f: any(g in f["genres"] for g in names)
+
+
+def _gross(dom, ww):
+    return lambda f: (f.get("domestic") or 0) >= dom or (f.get("worldwide") or 0) >= ww
+
+
+DESCRIPTORS = [
+    ("Raunchy", r"raunchy", _kw("raunchy", "sex comedy", "gross-out")),
+    ("Steamy", r"steamy|erotic|sexy", _kw("erotic", "steamy", "sensuality", "sex scene")),
+    ("Gritty", r"gritty", _kw("gritty", "neo-noir", "grim")),
+    ("Psychological", r"psychological", _kw("psychological")),
+    ("Disturbing", r"disturbing|twisted", _kw("disturbing", "body horror", "twisted", "psychopath")),
+    ("Brutal", r"brutal|bloody|gory|violent", _kw("gore", "violence", "brutal", "splatter", "decapitation", "bloody")),
+    ("Terrifying", r"terrifying|scary|spine-chilling", _genre("Horror")),
+    ("Hilarious", r"hilarious|funny", _genre("Comedy")),     # not TMDB's "hilarious" reaction keyword
+    ("Heartwarming", r"heartwarming|feel-good", _kw("heartwarming", "feel-good", "feel good")),
+    ("Mind-Bending", r"mind-bending", _kw("mind-bending", "surreal", "time loop", "nonlinear")),
+    ("DCU", r"dcu(?:'s)?", lambda f: _kw("dc universe (dcu)")(f) or _co("DC Studios")(f)),
+    ("DC", r"dc(?:'s)?", lambda f: _kw("dc comics", "dc universe", "dc extended universe")(f) or _co("DC Studios", "DC Comics", "DC Entertainment")(f)),
+    ("MCU", r"mcu(?:'s)?", lambda f: _kw("marvel cinematic universe")(f) or _co("Marvel Studios")(f)),
+    ("Marvel", r"marvel(?:'s)?", lambda f: _kw("marvel comics", "marvel cinematic universe")(f) or _co("Marvel")(f)),
+    ("Pixar", r"pixar(?:'s)?", _co("Pixar")),
+    ("Disney", r"disney(?:'s)?", _co("Disney")),
+    ("Blumhouse", r"blumhouse(?:'s)?", _co("Blumhouse")),
+    ("A24", r"a24(?:'s)?", _co("A24")),
+    ("Superhero", r"superhero", _kw("superhero")),
+    ("Comic Book", r"comic[- ]book", _kw("based on comic")),
+    ("Video Game", r"video[- ]game", _kw("based on video game")),
+    ("Zombie", r"zombie", _kw("zombie")),
+    ("Martial Arts", r"martial[- ]arts", _kw("martial arts")),
+    ("Sequel", r"sequel", lambda f: _kw("sequel")(f) or bool(f.get("collection"))),
+    ("Reboot", r"reboot", _kw("reboot")),
+    ("Remake", r"remake", _kw("remake")),
+    ("R-Rated", r"r-rated", lambda f: f.get("certification") == "R"),
+    ("Biopic", r"biopic", _kw("biography", "biopic")),
+    ("Hit", r"hit", _gross(100e6, 250e6)),
+    ("Blockbuster", r"blockbuster|smash|major|juggernaut|megahit", _gross(200e6, 500e6)),
+    ("Billion-Dollar", r"billion[- ]dollar", lambda f: (f.get("worldwide") or 0) >= 1e9),
+    ("Flop", r"flop|bomb|disappointment", lambda f: False),    # no budget data: never supported
+]
+
+
+def film_facts(credits: dict, domestic=None, worldwide=None) -> dict:
+    return {"genres": credits.get("genres") or [], "keywords": [k.lower() for k in credits.get("keywords") or []],
+            "companies": credits.get("companies") or [], "certification": credits.get("certification") or "",
+            "collection": credits.get("collection") or "", "domestic": domestic, "worldwide": worldwide}
+
+
+def supported_descriptors(facts: list[dict]) -> list[str]:
+    return [label for label, _, test in DESCRIPTORS if any(test(f) for f in facts)]
+
+
+def unsupported_descriptors(title: str, facts: list[dict]) -> list[str]:
+    """Descriptors in the title that no film in the story backs. Strip named films and people first."""
+    ok = set(supported_descriptors(facts))
+    return [m.group(0) for label, rx, _ in DESCRIPTORS if label not in ok
+            for m in [re.search(r"(?<![\w-])(?:" + rx + r")(?![\w-])", title, re.I)] if m]
 
 
 def genre_block(film: str, options: list[dict], comp: str | None = None, comp_options: list[dict] | None = None) -> str:

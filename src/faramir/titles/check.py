@@ -97,6 +97,20 @@ def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
     if comp and masked_as and not re.search(re.escape(comp), t, re.I) \
             and re.search(r"best picture|classic|winner", t, re.I) and masked_as.split(" ", 2)[-1].lower() not in t.lower():
         r.append(f"masked_comparison_needs_genre: describe it as '{masked_as}'")
+    own = t
+    for n in [*brief.names, *getattr(brief, "people", [])]:
+        own = re.sub(re.escape(n), " ", own, flags=re.I)
+    allowed_verbs = [o for o in getattr(brief, "verb_options", []) if o["allowed"]]
+    if allowed_verbs:
+        used = [o for o in brief.verb_options if re.search(r"(?<![\w-])" + o["regex"] + r"(?![\w-])", own, re.I)]
+        weak = [o for o in used if not o["allowed"]]
+        if weak and not any(o["allowed"] for o in used):
+            r.append(f"verb_weak: use {' or '.join(repr(o['phrase']) for o in allowed_verbs)} instead of "
+                     f"'{weak[0]['phrase']}' (MovieWeb's stronger proven verbs for this story)")
+        elif not used:
+            w.append("verb_unranked: none of the ranked verbs for this story type")
+    for bad in data.unsupported_descriptors(own, getattr(brief, "descriptor_facts", [])):
+        r.append(f"descriptor_unsupported: drop '{bad}' (nothing in TMDB or the figures backs it) or use a supported one")
     for phrase in data.AVOID:
         if re.search(r"(?<![\w-])" + re.escape(phrase) + r"(?![\w])", t, re.I):
             w.append(f"avoid_list: '{phrase}'")

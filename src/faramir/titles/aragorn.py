@@ -56,11 +56,12 @@ TRIM_PROMPT = """You repair MovieWeb News titles: at most {n} characters, plus a
 trimming order: cut the untested word first, the redundant fact second, the genre modifier third. Never cut
 "Officially" or "Box Office", never shorten the genre wording, and never strip the genre from a masked film ("a Best
 Picture-Winning Crime Thriller" keeps "Crime Thriller"). Keep the same facts, the same named films and
-people, and the same tense. Add nothing.
+people, and the same tense. Add nothing beyond the fixes listed.
 Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
 
 
-FIXABLE = ("too_long", "genre_phrase", "masked_comparison_needs_genre", "box_office_missing", "takeover_needs_previous_leader")
+FIXABLE = ("too_long", "genre_phrase", "masked_comparison_needs_genre", "box_office_missing", "takeover_needs_previous_leader",
+           "verb_weak", "descriptor_unsupported")
 # Deterministic cuts, in the Title Crafting Rules' trimming order (untested words, redundant facts, then
 # modifiers). Never touches "Officially", "Action Thriller" or a masked film's genre.
 CUTS = [(r"\bIs Closing In On\b", "Closes In On"), (r"\bOpening Weekend\b", "Debut"), (r"\bWith an? ", "With "),

@@ -210,17 +210,27 @@ def build_cards(payload: dict | None, report: dict, picks: list[dict], imdb: dic
 
 
 def _credits(tmdb_id, cache_path: str) -> dict:
-    """Genres, director, top cast and franchise from TMDB (cached; free API)."""
+    """Genres, director, top cast, franchise, TMDB keywords, studios and US rating (cached; free API).
+    Keywords, studios and rating are what a title's descriptors are checked against."""
     cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
     key = str(tmdb_id)
-    if key not in cache and tmdb_id and int(tmdb_id) > 0:
+    if "keywords" not in cache.get(key, {}) and tmdb_id and int(tmdb_id) > 0:
         try:
-            from faramir.tmdb import get_movie_details
-            d = get_movie_details(int(tmdb_id))
-            cache[key] = {"genres": d.get("genres") or [], "director": d.get("director") or "",
-                          "cast": (d.get("lead_cast") or [])[:3], "collection": d.get("collection_name") or ""}
+            from faramir.tmdb import _api_key, _get_json_with_retry
+            d = _get_json_with_retry(f"/movie/{int(tmdb_id)}",
+                                     {"api_key": _api_key(), "append_to_response": "credits,keywords,release_dates"})
+            crew, cast = d.get("credits", {}).get("crew", []), d.get("credits", {}).get("cast", [])
+            us = [r.get("certification") for x in d.get("release_dates", {}).get("results", []) if x.get("iso_3166_1") == "US"
+                  for r in x.get("release_dates", []) if r.get("certification")]
+            cache[key] = {"genres": [g["name"] for g in d.get("genres", [])],
+                          "director": ", ".join(p["name"] for p in crew if p.get("job") == "Director"),
+                          "cast": [p["name"] for p in cast[:3]],
+                          "collection": (d.get("belongs_to_collection") or {}).get("name", ""),
+                          "keywords": [k["name"] for k in d.get("keywords", {}).get("keywords", [])],
+                          "companies": [c["name"] for c in d.get("production_companies", [])],
+                          "certification": us[0] if us else ""}
         except Exception:  # noqa: BLE001
-            cache[key] = {}
+            cache.setdefault(key, {})
         json.dump(cache, open(cache_path, "w"), indent=1)
     return cache.get(key, {})
 
@@ -263,7 +273,9 @@ def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, 
     for i, c in enumerate(cards, 1):
         film, cand = c["_film"], c["_cand"]
         credits = _credits(film.get("tmdb_id"), os.path.join(local_store.STORE_DIR, "tmdb_details.json"))
-        b = brief_mod.build(film, cand, credits, data_date, weekend, c["sources"], pool, baseline, phrases)
+        comp_id = (cand.get("comp") or {}).get("tmdb_id")
+        comp_credits = _credits(comp_id, os.path.join(local_store.STORE_DIR, "tmdb_details.json")) if comp_id else None
+        b = brief_mod.build(film, cand, credits, data_date, weekend, c["sources"], pool, baseline, phrases, comp_credits)
         with open(os.path.join(briefs_dir, f"{i:02d}_{cand.get('strategy')}.txt"), "w") as f:
             f.write(b.user_message())
         prior = (previous or {}).get((c["label"], tuple(c["numbers"])))
@@ -317,15 +329,33 @@ def render(cards: list[dict], run_date: date, report: dict) -> str:
 CHART_NOT_POSTED = 75   # EX_TEMPFAIL: the daily job retries
 
 
-def chart_posted(day: date) -> bool:
-    """Has The Numbers published this day's daily chart (a parsed chart with rows)?"""
+COMPLETE_SHARE = 0.75   # a chart with fewer films than this share of the day before is still being filled in
+MIN_ROWS = 10
+
+
+def chart_rows(day: date) -> int:
+    """How many films The Numbers' daily chart for this day lists (0 if not posted or unreachable)."""
     from faramir.tn_chart import parse_chart
     from faramir.weekend_collect import USER_AGENT
     try:
         resp = _REAL_GET(daily_url(day), headers={"User-Agent": USER_AGENT}, timeout=30)
-        return resp.ok and bool(parse_chart(resp.text, daily_url(day), "daily", day).rows)
+        return len(parse_chart(resp.text, daily_url(day), "daily", day).rows) if resp.ok else 0
     except Exception:  # noqa: BLE001 — treat as not posted; the job retries
-        return False
+        return 0
+
+
+def chart_ready(day: date, partial_ok: bool = False) -> tuple[bool, str]:
+    """Has The Numbers posted this day's daily chart, complete? It posts the early-reporting films first
+    and fills in the rest hours later (2026-10-28: 12 films at 1:52pm, 25 by 5pm); a run on the partial
+    chart drops every film that isn't on it yet. Complete = at least COMPLETE_SHARE of the day before."""
+    rows = chart_rows(day)
+    if not rows:
+        return False, "not posted yet"
+    prev = chart_rows(day - timedelta(days=1))
+    need = max(MIN_ROWS, round(COMPLETE_SHARE * prev)) if prev else MIN_ROWS
+    if rows >= need:
+        return True, f"{rows} films"
+    return partial_ok, f"partial: {rows} films so far (the day before had {prev})"
 
 
 def main(argv=None) -> int:
@@ -336,15 +366,21 @@ def main(argv=None) -> int:
                     help="write titles with the Aragorn method (one paid Claude call per card)")
     ap.add_argument("--title-cards", default=None, help="with --titles: only these card numbers, e.g. 5 or 2,5")
     ap.add_argument("--require-chart", action="store_true",
-                    help="stop (exit 75) if The Numbers hasn't posted yesterday's daily chart yet, instead of "
-                         "falling back to an older chart; the daily job retries later")
+                    help="stop (exit 75) if The Numbers hasn't posted yesterday's daily chart in full yet, instead of "
+                         "falling back to an older or partial chart; the daily job retries later")
+    ap.add_argument("--partial-ok", action="store_true",
+                    help="with --require-chart: accept a partly posted chart (the daily job's last try)")
     ap.add_argument("--cards", type=int, default=8, help="maximum cards to show")
     ap.add_argument("--all", action="store_true", help="review mode: show every ranked story, not just today's slots")
     args = ap.parse_args(argv)
     run_date = date.fromisoformat(args.date) if args.date else date.today()
-    if args.require_chart and not chart_posted(run_date - timedelta(days=1)):
-        print(f"The Numbers hasn't posted the {run_date - timedelta(days=1)} daily chart yet; try again later.")
-        return CHART_NOT_POSTED
+    if args.require_chart:
+        ready, why = chart_ready(run_date - timedelta(days=1), args.partial_ok)
+        if not ready:
+            print(f"The Numbers' {run_date - timedelta(days=1)} daily chart isn't ready ({why}); try again later.")
+            return CHART_NOT_POSTED
+        if why.startswith("partial"):
+            print(f"PARTIAL CHART: running anyway on the last try ({why}).")
     names = ("TMDB_API_KEY", "ANTHROPIC_API_KEY") if (args.claude or args.titles) else ("TMDB_API_KEY",)
     local_store.load_env(names)
     if args.claude:
