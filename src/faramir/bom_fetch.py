@@ -175,6 +175,32 @@ def fetch_weekend_list(year: int, week: int) -> list[dict]:
         return []
 
 
+def parse_title_page(html: str) -> dict | None:
+    """{domestic, international, worldwide} from a BOM title page, or None.
+
+    Reads the "All Releases" summary block (lifetime totals across every run, re-releases included),
+    whose labels read "Domestic (41.4%)" / "International (58.6%)" / "Worldwide". Matching the bare
+    words instead caught the release table's "Domestic" row, whose first figure is the OPENING
+    weekend, and found no international total at all. A total BOM shows as "–" comes back as 0.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    block = soup.find("div", class_="mojo-performance-summary-table")
+    if not block:
+        return None
+    result = {}
+    for section in block.find_all("div", recursive=False):
+        label = section.find("span", class_="a-size-small")
+        name = re.match(r"\s*(domestic|international|worldwide)\b", label.get_text(" ", strip=True), re.I) if label else None
+        if not name:
+            continue
+        money = section.find("span", class_="money")
+        result[name.group(1).lower()] = _clean_money(money.get_text(strip=True)) if money else 0
+    if not result.get("worldwide") and not result.get("domestic"):
+        return None
+    dom, intl = result.get("domestic", 0), result.get("international", 0)
+    return {"domestic": dom, "international": intl, "worldwide": result.get("worldwide") or dom + intl}
+
+
 def scrape_worldwide(imdb_id: str) -> dict | None:
     """Scrape BOM title page for worldwide lifetime gross breakdown.
 
@@ -189,29 +215,8 @@ def scrape_worldwide(imdb_id: str) -> dict | None:
         logger.warning("scrape_worldwide: request failed for %s: %s", imdb_id, exc)
         return None
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    result = {}
-
-    # BOM renders Domestic / International / Worldwide as text labels
-    # with money values on nearby lines. Films with multiple theatrical runs
-    # (reissues, re-releases) repeat these labels once per run — take the max
-    # value seen for each label so we land on the lifetime aggregate rather
-    # than whichever run happens to appear first on the page.
-    lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
-    for i, line in enumerate(lines):
-        lower = line.lower()
-        if lower in ("domestic", "international", "worldwide"):
-            for j in range(i + 1, min(i + 6, len(lines))):
-                val = _clean_money(lines[j])
-                if val > 0:
-                    result[lower] = max(result.get(lower, 0), val)
-                    break
-
+    result = parse_title_page(resp.text)
     if result:
-        dom = result.get("domestic", 0)
-        intl = result.get("international", 0)
-        ww = result.get("worldwide", dom + intl)
-        return {"domestic": dom, "international": intl, "worldwide": ww}
-
+        return result
     logger.warning("scrape_worldwide: could not parse page for %s", imdb_id)
     return None

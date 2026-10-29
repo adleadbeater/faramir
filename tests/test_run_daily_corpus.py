@@ -38,7 +38,16 @@ def load_run_daily():
     return mod
 
 
-BOM_TITLE_HTML = "<html><body><div>Domestic</div><div>$152,000,000</div><div>International</div><div>$170,000,000</div><div>Worldwide</div><div>$322,000,000</div></body></html>"
+def _bom_section(label, money):
+    return (f'<div class="a-section a-spacing-none"><span class="a-size-small">{label}</span><br/>'
+            f'<span class="a-size-medium a-text-bold"><span class="money">{money}</span></span></div>')
+
+
+# Box Office Mojo title page, real "All Releases" summary markup
+BOM_TITLE_HTML = ('<html><body><div class="a-section a-spacing-none mojo-performance-summary-table">'
+                  '<h2>All Releases</h2>' + _bom_section('Domestic (<span class="percent">47.2%</span>)', "$152,000,000")
+                  + _bom_section('International (<span class="percent">52.8%</span>)', "$170,000,000")
+                  + _bom_section("Worldwide", "$322,000,000") + "</div></body></html>")
 TMDB_DETAILS = {
     "imdb_id": "tt5001001", "title": "Beta Story", "release_date": "2026-09-18", "genres": [{"name": "Action"}],
     "credits": {"crew": [{"job": "Director", "name": "Dana Director"}], "cast": [{"name": "Lead One"}]},
