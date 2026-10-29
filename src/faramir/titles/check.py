@@ -77,10 +77,18 @@ def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
         if len(other) >= 4 and other.lower() not in allowed and re.search(
                 r"(?<!\w)" + re.escape(other) + r"(?!\w)", t, re.I):
             r.append(f"film_not_in_story: '{other}'")
-    if getattr(brief, "film_genre_phrase", None) == "Action Thriller" and re.search(r"thriller", t, re.I) \
-            and not re.search(r"(?<![\w-])action thriller", t, re.I):
-        r.append("genre_phrase: call it an 'Action Thriller'")
     comp, masked_as = getattr(brief, "comp_title", None), getattr(brief, "comp_masked_as", None)
+    top = getattr(brief, "film_genre_phrase", None)
+    if top:
+        own = t
+        for part in (masked_as, comp):
+            if part:
+                own = re.sub(re.escape(part.split(" ", 1)[-1] if part == masked_as else part), " ", own, flags=re.I)
+        words = lambda x: re.compile(r"(?<![\w-])" + re.escape(x) + r"(?![\w])", re.I)  # noqa: E731
+        used = [o["phrase"] for o in brief.film_genre_options if words(o["phrase"]).search(own)] \
+            + (["a blended genre"] if re.search(r"\b\w+-(?:Adventure|Action|Thriller)\b", own) else [])
+        if used and not words(top).search(own):
+            r.append(f"genre_phrase: use '{top}', the best-performing accurate genre wording (not {used[0]})")
     if comp and masked_as and not re.search(re.escape(comp), t, re.I) \
             and re.search(r"best picture|classic|winner", t, re.I) and masked_as.split(" ", 2)[-1].lower() not in t.lower():
         r.append(f"masked_comparison_needs_genre: describe it as '{masked_as}'")

@@ -126,6 +126,70 @@ def power_words_block(phrases: list[Phrase], baseline_sa: int, limit: int = 20, 
     return "\n".join(lines)
 
 
+# TMDB genre → the MovieWeb word for it
+GENRE_WORD = {"Action": "Action", "Adventure": "Adventure", "Thriller": "Thriller", "Crime": "Crime",
+              "Science Fiction": "Sci-Fi", "Horror": "Horror", "Mystery": "Mystery", "Drama": "Drama",
+              "Comedy": "Comedy", "Fantasy": "Fantasy", "Romance": "Romance", "War": "War", "Western": "Western",
+              "Animation": "Animated", "Family": "Family", "History": "Historical", "Music": "Musical",
+              "Documentary": "Documentary"}
+# Honest relabels (Title Crafting Rules §7 grey zone; Rob 2026-10-28: an Adventure + Thriller is an Action Thriller)
+ADJACENT = {"Adventure": ["Action", "Epic"], "History": ["Epic"], "War": ["Epic"], "Fantasy": ["Epic"]}
+# Second words that pair after a first genre word ("Crime Thriller", "Sci-Fi Action", "Action Comedy")
+PAIR_TAILS = {"Thriller", "Action", "Comedy", "Drama", "Epic", "Horror", "Western", "Adventure"}
+
+
+def genre_candidates(tmdb_genres: list[str]) -> list[str]:
+    """Every genre wording that honestly describes a film with these TMDB genres."""
+    words = []
+    for g in tmdb_genres or []:
+        if g in GENRE_WORD:
+            words.append(GENRE_WORD[g])
+        words += ADJACENT.get(g, [])
+    words = list(dict.fromkeys(words))
+    out = list(words)
+    for first in words:
+        for second in words:
+            if first != second and second in PAIR_TAILS and first not in ("Epic",):
+                out.append(f"{first} {second}")
+    return list(dict.fromkeys(out))
+
+
+SHRINK_K = 10   # same shrinkage strength as the ranker (priority_config shrinkage_k)
+
+
+def genre_options(tmdb_genres: list[str], pool: list[Article], phrases: list[Phrase], min_n: int = SMALL_SAMPLE) -> list[dict]:
+    """Accurate genre wordings ranked by MovieWeb performance: News + Flash desk S/A from Cerebro (titles
+    containing the phrase); the Power Words Sheet's figure where the desk sample is too small. Ranked on
+    S/A shrunk toward the desk baseline, so 16 strong uses don't outrank 291 nearly-as-strong ones."""
+    base = statistics.fmean([a.sessions or 0 for a in pool]) if pool else 0
+    sheet = {p.phrase.lower(): p for p in phrases}
+    out = []
+    for phrase in genre_candidates(tmdb_genres):
+        rx = re.compile(r"(?<![\w-])" + re.escape(phrase) + r"(?![\w-])", re.I)
+        st = _stats([a for a in pool if rx.search(a.title)])
+        sp = sheet.get(phrase.lower())
+        if st["articles"] >= min_n:
+            out.append({"phrase": phrase, "sa": st["sa"], "n": st["articles"], "fr": st["fr"], "basis": "cerebro_desk"})
+        elif sp and sp.sheet_uses >= min_n:
+            out.append({"phrase": phrase, "sa": round(sp.sheet_sa), "n": sp.sheet_uses, "fr": None,
+                        "basis": "power_words_sheet (runs hot)"})
+    for o in out:
+        o["rank_sa"] = round((o["n"] * o["sa"] + SHRINK_K * base) / (o["n"] + SHRINK_K))
+    return sorted(out, key=lambda o: -o["rank_sa"])
+
+
+def genre_block(film: str, options: list[dict], comp: str | None = None, comp_options: list[dict] | None = None) -> str:
+    def rows(opts):
+        return [f"  - {o['phrase']}: S/A ≈ {o['sa']:,} · {o['n']} uses · {o['basis']}" for o in opts[:6]]
+    lines = ["--- GENRE WORDING (accurate options, ranked by MovieWeb performance) ---"]
+    if options:
+        lines += [f"{film}:"] + rows(options)
+    if comp and comp_options:
+        lines += [f"'{comp}' (if you describe it instead of naming it):"] + rows(comp_options)
+    lines.append("--- END GENRE WORDING ---")
+    return "\n".join(lines) if len(lines) > 2 else ""
+
+
 def _tagged(a: Article, tag: str) -> bool:
     t = tag.strip().lower()
     return a.pri_tag.strip().lower() == t or any(x.strip().lower() == t for x in a.tags)

@@ -252,6 +252,8 @@ def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, 
     data_date = (report.get("source_dates") or {}).get("daily_chart")
     weekend = (report.get("weekend_strategies") or {}).get("weekend_start")
     briefs_dir = os.path.join(out_dir, "title_briefs")
+    import shutil
+    shutil.rmtree(briefs_dir, ignore_errors=True)   # briefs are rebuilt every run; never leave stale ones
     os.makedirs(briefs_dir, exist_ok=True)
     client = None
     if live:

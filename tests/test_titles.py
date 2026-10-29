@@ -151,19 +151,31 @@ def test_discovery_figures_are_stated_as_having_happened():
     assert mk(disc).status == "confirmed" and "STATUS: HAPPENED" in mk(disc).fact_sheet
 
 
-def test_comparison_genres_are_on_the_fact_sheet_and_action_thrillers_keep_their_name():
-    comp = {**CHASE["comp"], "genres": ["Crime", "Thriller"], "is_best_picture": True}
-    b = mk({**CHASE, "comp": comp})
-    assert "genres: Crime, Thriller · Best Picture winner" in b.fact_sheet
-    action = brief_mod.build(FILM, CHASE, {"genres": ["Adventure", "Thriller"]}, "2026-10-27", None, [], POOL, 8_000, [])
-    assert action.film_genre_phrase == "Action Thriller" and "Action Thriller" in action.user_message()
-    assert not check("Clayface's Action-Adventure Thriller Is About to Pass The Sting", action).ok
-    assert check("Clayface's Action Thriller Is About to Pass The Sting", action).ok
-    masked = mk({**CHASE, "comp": comp})
-    assert masked.comp_masked_as == "a Best Picture-Winning Crime Thriller" and "REQUIRED FOR THIS STORY" in masked.user_message()
-    assert not check("Clayface Is About to Pass a Best Picture Winner's Gross", masked).ok
-    assert check("Clayface Is About to Pass a Best Picture-Winning Crime Thriller", masked).ok
-    assert check("Clayface Is About to Pass 'The Sting'", masked).ok
+GENRE_POOL = ([art(f"Star's Action Thriller Story {i}", 25_000) for i in range(12)]
+              + [art(f"Big Thriller News {i}", 9_000) for i in range(12)]
+              + [art(f"Action Adventure Hit {i}", 40_000) for i in range(2)]
+              + [art(f"Crime Thriller Case {i}", 3_000) for i in range(6)]
+              + [art(f"Western Return {i}", 12_000) for i in range(6)]
+              + [art(f"Action Sequel Update {i}", 4_000) for i in range(20)])
+
+
+def test_genre_wording_is_ranked_by_movieweb_performance_among_accurate_options():
+    from faramir.titles.data import genre_candidates, genre_options
+    assert "Action Thriller" in genre_candidates(["Adventure", "Thriller"])        # Adventure → Action relabel
+    assert "Horror" not in genre_candidates(["Adventure", "Thriller"])             # never an inaccurate genre
+    opts = genre_options(["Adventure", "Thriller"], GENRE_POOL, [])
+    assert opts[0]["phrase"] == "Action Thriller"                                  # 2 big uses don't beat 12
+    comp = {**CHASE["comp"], "genres": ["Crime", "Thriller", "Western"], "is_best_picture": True}
+    b = brief_mod.build(FILM, {**CHASE, "comp": comp}, {"genres": ["Adventure", "Thriller"]}, "2026-10-27", None, [],
+                        GENRE_POOL, 8_000, [])
+    assert b.film_genre_phrase == "Action Thriller" and b.comp_masked_as == "a Best Picture-Winning Thriller"
+    assert "GENRE WORDING" in b.user_message() and "REQUIRED FOR THIS STORY" in b.user_message()
+    assert "genres: Crime, Thriller, Western · Best Picture winner" in b.fact_sheet
+    assert check("Clayface's Action Thriller Is About to Pass a Best Picture-Winning Thriller", b).ok
+    assert not check("Clayface's Action-Adventure Thriller Is About to Pass 'The Sting'", b).ok
+    assert not check("Clayface's Thriller Is About to Pass 'The Sting'", b).ok
+    assert not check("Clayface's Action Thriller Is About to Pass a Best Picture Winner", b).ok
+    assert check("Clayface Is About to Pass 'The Sting' at the Box Office", b).ok      # no genre named: fine
 
 
 def test_deterministic_shortening_keeps_protected_words():
