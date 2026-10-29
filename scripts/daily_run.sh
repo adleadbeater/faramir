@@ -46,7 +46,12 @@ for attempt in $(seq 1 "$TRIES"); do
         mkdir -p "$CARDS_DIR" && touch "$DONE"
         cards=$(grep -c '^\*\*[0-9]' "$CARDS_DIR/cards.md" 2>/dev/null || echo 0)
         cost=$(grep -o '≈ \$[0-9.]*' "$LOG" | tail -1)
-        notify "$cards story cards ready for $TODAY ${cost:+($cost)} — out/cards/$TODAY/cards.md"
+        msg="$cards story cards ready for $TODAY ${cost:+($cost)} — out/cards/$TODAY/cards.md"
+        cerebro="$REPO/out/local_store/cerebro_MW.csv"
+        if [ -f "$cerebro" ] && [ -n "$(find "$cerebro" -mtime +3 2>/dev/null)" ]; then
+            msg="$msg · Cerebro data is over 3 days old: run sync-cerebro.sh in Terminal"
+        fi
+        notify "$msg"
         echo "$(date '+%F %T') done: $cards cards" >>"$LOG"
         exit 0
     elif [ "$code" -eq 75 ] && [ "$attempt" -lt "$TRIES" ]; then
