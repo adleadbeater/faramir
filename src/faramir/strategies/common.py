@@ -94,6 +94,22 @@ def meaningful(categories: list[str], comp_rank: int | None) -> list[str]:
     return out
 
 
+KNOWN_RANK = 300   # [CAL] a comparison film inside the all-time top 300 on that axis is widely known
+
+
+def comp_recognized(comp: dict, categories: list[str], comp_rank: int | None) -> bool:
+    """Would a reader recognise the film it passed? A creative/franchise link, a notable film, or an
+    all-time top-300 gross. Passing an obscure film is true but not a story."""
+    return (bool(set(categories) & set(MEANINGFUL_CATEGORIES)) or (comp_rank is not None and comp_rank <= KNOWN_RANK)
+            or bool(comp.get("is_best_picture")) or bool(comp.get("is_classic")))
+
+
+def scale_strength(total_gross: float | None, base: float) -> float:
+    """Box-office scale [CAL]: a story about a small film counts for less."""
+    t = total_gross or 0
+    return round(base - 0.25 if t < 25e6 else base - 0.1 if t < 75e6 else base, 3)
+
+
 def comp_strength(categories: list[str], comp_rank: int | None, base: float = 0.5) -> float:
     s = base + sum(CATEGORY_STRENGTH.get(c, 0.0) for c in categories)
     if comp_rank is not None and comp_rank <= ALL_TIME_TOP_N:

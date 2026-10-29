@@ -1,15 +1,37 @@
 {
-  "version": "2026-10-23.v1",
-  "status": "initial — weights from plan §6, awaiting human approval; calibration pending (no outcomes yet)",
-  "weights": {"event_strength": 0.35, "audience_affinity": 0.20, "strategy_perf_adj": 0.15,
-              "headline_evidence": 0.10, "novelty": 0.10, "confidence": 0.10},
-  "performance_multiplier_cap": [0.7, 1.3],
+  "version": "2026-10-28.v2",
+  "status": "v2 (2026-10-28, Rob: fix ranking): one slot per film \u00d7 story type and at most 2 per film; obscure comparisons and small-film Exits score lower in the detectors, and stories below event strength 0.4 get no slot; the test slot takes the strongest eligible story. Weights unchanged from v1 (plan \u00a76), awaiting human approval; calibration pending (no outcomes yet)",
+  "weights": {
+    "event_strength": 0.35,
+    "audience_affinity": 0.2,
+    "strategy_perf_adj": 0.15,
+    "headline_evidence": 0.1,
+    "novelty": 0.1,
+    "confidence": 0.1
+  },
+  "performance_multiplier_cap": [
+    0.7,
+    1.3
+  ],
   "always_eligible_strength": 0.9,
   "min_deliveries_before_down_adjust": 8,
-  "exploration": {"share": 0.15, "min_slots_per_week": 1},
+  "exploration": {
+    "share": 0.15,
+    "min_slots_per_week": 1
+  },
   "shrinkage_k": 10,
   "experimental_below_n_eff": 8,
   "outcome_age_days": 14,
-  "outcome_age_window_days": [14, 21],
-  "penalties": {"provisional": 0.15, "legacy_identity": 0.05}
+  "outcome_age_window_days": [
+    14,
+    21
+  ],
+  "penalties": {
+    "provisional": 0.15,
+    "legacy_identity": 0.05
+  },
+  "diversity": {
+    "max_per_film": 2
+  },
+  "min_event_strength": 0.4
 }

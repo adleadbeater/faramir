@@ -116,18 +116,41 @@ def rank(decisions: list[Decision], slots: int, cfg: dict, explored_this_week: i
         d.rank = i
         d.competing_above = [x.event_id for x in ordered[:i - 1]][:5]
     n_explore = _exploration_slots(slots, cfg, explored_this_week) if len(ordered) > slots else 0
-    main = ordered[:slots - n_explore]
-    rest = ordered[slots - n_explore:]
+    # Variety: one slot per film × story type, and at most max_per_film slots per film, so one film
+    # passing several comparison films can't take the whole day.
+    div = cfg.get("diversity", {})
+    max_per_film = div.get("max_per_film", 2)
+    main, crowded, per_film, seen = [], set(), {}, set()
+    too_weak = {d.event_id for d in ordered if d.score_components["event_strength"] < cfg.get("min_event_strength", 0)}
+    for d in ordered:
+        if len(main) >= slots - n_explore:
+            break
+        if d.event_id in too_weak:
+            continue
+        film = (d.film or {}).get("tmdb_id") or (d.film or {}).get("title")
+        if (film, d.strategy_primary) in seen or per_film.get(film, 0) >= max_per_film:
+            crowded.add(d.event_id)
+            continue
+        main.append(d)
+        seen.add((film, d.strategy_primary))
+        per_film[film] = per_film.get(film, 0) + 1
+    in_main_ids = {d.event_id for d in main}
+    rest = [d for d in ordered if d.event_id not in in_main_ids and d.event_id not in crowded and d.event_id not in too_weak]
     # Exploration: the least-evidenced strategies first (fewest deliveries), deterministic tie-break.
     in_main = {d.strategy_primary for d in main}
     rest_sorted = sorted(rest, key=lambda d: (d.strategy_primary in in_main,  # test something not already shown
                                               deliveries_by_strategy.get(d.strategy_primary, 0),
+                                              -d.score,
                                               hashlib.sha1(d.event_id.encode()).hexdigest()))
     explore = rest_sorted[:n_explore]
     chosen = {d.event_id for d in main + explore}
     for d in ordered:
         if d.event_id in chosen:
             d.disposition = {"value": "suggested", "reason_codes": [f"rank_{d.rank}"]}
+        elif d.event_id in too_weak:
+            d.disposition = {"value": "filtered", "reason_codes": ["too_weak_a_story"]}
+        elif d.event_id in crowded:
+            d.disposition = {"value": "filtered", "reason_codes": ["same_film_story_already_in_slots"]}
         elif d.score_components["event_strength"] >= cfg["always_eligible_strength"]:
             d.disposition = {"value": "deferred", "reason_codes": ["no_slot_but_always_eligible"]}
         else:

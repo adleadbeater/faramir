@@ -352,7 +352,9 @@ def test_every_candidate_and_event_gets_a_ledger_row_and_picks_carry_rationale(e
     payload = json.loads(fake.calls[0]["messages"][0]["content"])
     sent = [c for f in payload["active_films"] for c in f["candidates"]]
     # Phase 4: only the ranked slots (picks_max + 2) reach Claude, in rank order.
-    assert len(sent) == min(eng["delivered_clusters"], 6) and all(c.get("rank") for c in sent)
+    assert 1 <= len(sent) <= 6 and all(c.get("rank") for c in sent)
+    # Variety (priority config v2): one slot per film × story type, at most two per film.
+    assert len({c["strategy"] for c in sent}) == len(sent) <= 2
     assert all(c.get("strategy") in ("overtake", "chase", "countdown") for c in sent)
     cands = _ledger_rows(env, "candidates")
     assert len(cands) >= report["candidates"]  # every matcher candidate (plus milestones) has a row

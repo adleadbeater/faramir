@@ -350,3 +350,37 @@ def test_discovery_card_keeps_this_weekends_gross_separate_from_last_weekends():
                          "", "", "", [])
     ev = DiscoveryEvent(item, {"tmdb_id": 1})
     assert ev.evidence["weekend_gross"] == 19_500_000 and ev.evidence["previous_weekend_gross"] == 15_600_000
+
+
+def test_one_film_cannot_take_every_slot():
+    def dec(i, film, strategy, score):
+        d = R.Decision.__new__(R.Decision)
+        d.event_id, d.film, d.strategy_primary, d.score = f"e{i}", {"tmdb_id": film}, strategy, score
+        d.score_components, d.exploration, d.rank = {"event_strength": 0.5}, {"flag": False}, None
+        return d
+    ds = [dec(0, 1, "overtake", .9), dec(1, 1, "overtake", .89), dec(2, 1, "chase", .88), dec(3, 1, "countdown", .87),
+          dec(4, 2, "takeover", .5), dec(5, 3, "exit", .4)]
+    out = R.rank(ds, 4, {**CFG, "exploration": {"share": 0, "min_slots_per_week": 0}}, explored_this_week=1)
+    chosen = [(d.film["tmdb_id"], d.strategy_primary) for d in out if d.disposition["value"] == "suggested"]
+    assert chosen == [(1, "overtake"), (1, "chase"), (2, "takeover"), (3, "exit")]
+    assert next(d for d in out if d.event_id == "e1").disposition["reason_codes"] == ["same_film_story_already_in_slots"]
+
+
+def test_obscure_comparisons_and_small_exits_score_lower():
+    from faramir.strategies.common import comp_recognized, scale_strength
+    assert not comp_recognized({"title": "The Interpreter"}, ["same_origin"], 900)
+    assert comp_recognized({"title": "X"}, [], 120) and comp_recognized({"is_classic": True}, [], 900)
+    assert comp_recognized({}, ["creative_head_to_head_director"], 900)
+    assert scale_strength(9e6, 0.55) == 0.3 and scale_strength(46e6, 0.55) == 0.45 and scale_strength(300e6, 0.55) == 0.55
+
+
+def test_too_weak_stories_get_no_slot():
+    def dec(i, film, strategy, score, strength):
+        d = R.Decision.__new__(R.Decision)
+        d.event_id, d.film, d.strategy_primary, d.score = f"e{i}", {"tmdb_id": film}, strategy, score
+        d.score_components, d.exploration, d.rank = {"event_strength": strength}, {"flag": False}, None
+        return d
+    ds = [dec(0, 1, "overtake", .67, .35), dec(1, 2, "dark_horse", .66, .7)]
+    out = R.rank(ds, 4, {**CFG, "min_event_strength": 0.4, "exploration": {"share": 0, "min_slots_per_week": 0}}, 1)
+    assert [d.event_id for d in out if d.disposition["value"] == "suggested"] == ["e1"]
+    assert next(d for d in out if d.event_id == "e0").disposition["reason_codes"] == ["too_weak_a_story"]

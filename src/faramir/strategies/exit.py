@@ -10,7 +10,7 @@ is never claimed.
 from __future__ import annotations
 
 from faramir.events.schema import Event
-from faramir.strategies.common import DetectorResult, film_ref, money
+from faramir.strategies.common import DetectorResult, film_ref, money, scale_strength
 from faramir.strategies.weekend import Weekend
 
 DROP_PCT = 40.0
@@ -43,7 +43,7 @@ def detect(series: list[Weekend | None]) -> DetectorResult:
                           "weekend_gross": r.gross, "total_gross": r.total_gross},
                 sources=[cur.source(), prev.source()],
                 reason=f"{r.title} dropped from {p.theaters:,} to {r.theaters:,} theaters ({drop:.0f}%) on the {cur.weekend_start} weekend.",
-                reason_codes=["theater_drop"], strength=0.55))
+                reason_codes=["theater_drop"], strength=scale_strength(r.total_gross, 0.55)))
     # End of run: on the chart three weekends ago, absent from the last two complete charts, total stalled.
     if len(series) >= 4 and all(w is not None for w in series[-4:]):
         before, last_on, gone1, gone2 = series[-4], series[-3], series[-2], series[-1]
@@ -62,5 +62,5 @@ def detect(series: list[Weekend | None]) -> DetectorResult:
                     sources=[gone2.source(), gone1.source(), last_on.source()],
                     reason=(f"{r.title} has been off two consecutive complete charts since {last_on.weekend_start}, "
                             f"its total having stalled at {money(r.total_gross)}."),
-                    reason_codes=["absent_two_complete_charts", "total_stalled"], strength=0.5))
+                    reason_codes=["absent_two_complete_charts", "total_stalled"], strength=scale_strength(r.total_gross, 0.5)))
     return out

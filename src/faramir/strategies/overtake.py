@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from faramir.corpus import reported
 from faramir.events.schema import Event
-from faramir.strategies.common import (DetectorResult, all_time_rank, axis_source, comp_ref, comp_strength,
+from faramir.strategies.common import (DetectorResult, all_time_rank, axis_source, comp_recognized, comp_ref, comp_strength,
                                        corpus_source, film_ref, money, series, threshold_strength)
 
 MAX_STALE_DAYS = 2
@@ -64,9 +64,12 @@ def detect(film: dict, candidates: list[dict], corpus: list[dict], data_date: st
             cats = list(c.get("angle_categories") or [])
             comp_rank = all_time_rank(value, corpus, axis, exclude_tmdb=comp.get("tmdb_id"))
             strength = comp_strength(cats, comp_rank, base=0.55)
+            obscure = not comp_recognized(comp, cats, comp_rank)
+            if obscure:
+                strength = 0.35   # true, but readers won't know the film it passed
             reason = (f"{film_ref(film)['title']} passed {comp.get('title')} ({comp.get('release_year')}) on the {axis} axis: "
                       f"{money(prev)} → {money(cur)} against {money(value)} (lifetime, corpus as of {gross_as_of}).")
-            codes = ["crossed_comp_lifetime"] + [f"category:{x}" for x in cats]
+            codes = ["crossed_comp_lifetime"] + [f"category:{x}" for x in cats] + (["obscure_comparison"] if obscure else [])
         else:
             cats = []
             strength = threshold_strength(value)
