@@ -266,8 +266,9 @@ def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, 
         b = brief_mod.build(film, cand, credits, data_date, weekend, c["sources"], pool, baseline, phrases)
         with open(os.path.join(briefs_dir, f"{i:02d}_{cand.get('strategy')}.txt"), "w") as f:
             f.write(b.user_message())
-        if not live or (only and i not in only):
-            prior = (previous or {}).get((c["label"], tuple(c["numbers"])))
+        prior = (previous or {}).get((c["label"], tuple(c["numbers"])))
+        already = bool(prior and prior.get("title_verdict") and prior.get("title_verdict") != "error")
+        if not live or (only and i not in only) or (not only and already):   # never pay twice for the same card
             if prior and prior.get("title_verdict"):
                 c.update({k: prior[k] for k in ("title", "alternative", "title_verdict", "title_logic",
                                                 "title_options", "title_note") if k in prior})
@@ -313,6 +314,20 @@ def render(cards: list[dict], run_date: date, report: dict) -> str:
     return "\n".join(out)
 
 
+CHART_NOT_POSTED = 75   # EX_TEMPFAIL: the daily job retries
+
+
+def chart_posted(day: date) -> bool:
+    """Has The Numbers published this day's daily chart (a parsed chart with rows)?"""
+    from faramir.tn_chart import parse_chart
+    from faramir.weekend_collect import USER_AGENT
+    try:
+        resp = _REAL_GET(daily_url(day), headers={"User-Agent": USER_AGENT}, timeout=30)
+        return resp.ok and bool(parse_chart(resp.text, daily_url(day), "daily", day).rows)
+    except Exception:  # noqa: BLE001 — treat as not posted; the job retries
+        return False
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None, help="run date YYYY-MM-DD (default today; the chart used is the day before)")
@@ -320,10 +335,16 @@ def main(argv=None) -> int:
     ap.add_argument("--titles", action="store_true",
                     help="write titles with the Aragorn method (one paid Claude call per card)")
     ap.add_argument("--title-cards", default=None, help="with --titles: only these card numbers, e.g. 5 or 2,5")
+    ap.add_argument("--require-chart", action="store_true",
+                    help="stop (exit 75) if The Numbers hasn't posted yesterday's daily chart yet, instead of "
+                         "falling back to an older chart; the daily job retries later")
     ap.add_argument("--cards", type=int, default=8, help="maximum cards to show")
     ap.add_argument("--all", action="store_true", help="review mode: show every ranked story, not just today's slots")
     args = ap.parse_args(argv)
     run_date = date.fromisoformat(args.date) if args.date else date.today()
+    if args.require_chart and not chart_posted(run_date - timedelta(days=1)):
+        print(f"The Numbers hasn't posted the {run_date - timedelta(days=1)} daily chart yet; try again later.")
+        return CHART_NOT_POSTED
     names = ("TMDB_API_KEY", "ANTHROPIC_API_KEY") if (args.claude or args.titles) else ("TMDB_API_KEY",)
     local_store.load_env(names)
     if args.claude:
