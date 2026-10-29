@@ -142,3 +142,10 @@ def test_the_gap_to_the_comparison_is_a_verified_figure():
     b = mk(CHASE, film)
     assert "Gap still to go: $1.7M" in b.fact_sheet
     assert check("Resident Evil Is $1.7M Away From Passing The Sting", b).ok
+
+
+def test_discovery_figures_are_stated_as_having_happened():
+    disc = {"kind": "event", "strategy": "discovery", "status": "anticipated", "axis": "weekend",
+            "event_values": {"weekend_gross": 19_500_000, "previous_weekend_gross": 15_600_000},
+            "rationale": "Discovery · up 25%"}
+    assert mk(disc).status == "confirmed" and "STATUS: HAPPENED" in mk(disc).fact_sheet

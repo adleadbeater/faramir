@@ -56,6 +56,8 @@ class Brief:
 
 
 def _status(cand: dict) -> str:
+    if cand.get("strategy") == "discovery":
+        return "confirmed"   # Discovery figures are verified chart rows; "proposed" refers to the pattern, not the facts
     if cand.get("status") in STATUS_WORDS:
         return cand["status"]
     return "anticipated" if cand.get("kind") in ("about_to_pass", "milestone") and cand.get("strategy") != "overtake" \
@@ -122,7 +124,7 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
         lines.append(f"- Chart: The Numbers weekend chart, {when}")
     lines.append(f"FARAMIR'S SUMMARY: {cand.get('rationale') or ''}")
     names = [title] + [n for n in (comp.get("title"), v.get("previous_leader"), v.get("rival"), v.get("second_place")) if n]
-    people = [p for p in [director, *cast] if p]
+    people = list(dict.fromkeys(p for p in [director, *cast] if p))
     lines.append("MAY BE NAMED: films: " + "; ".join(f"'{n}'" for n in dict.fromkeys(names))
                  + (f"; people: {', '.join(people)}" if people else ""))
     lines.append("SOURCES: " + " · ".join(sources))

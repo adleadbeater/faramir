@@ -224,7 +224,8 @@ def _credits(tmdb_id, cache_path: str) -> dict:
     return cache.get(key, {})
 
 
-def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool) -> str:
+def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, only: set | None = None,
+                 previous: dict | None = None) -> str:
     """Build each card's title brief; with live=True, write titles with the Aragorn method."""
     from faramir.analytics import cerebro_snapshot as CS
     from faramir.titles import aragorn, brief as brief_mod, data as tdata
@@ -255,8 +256,13 @@ def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool) 
         b = brief_mod.build(film, cand, credits, data_date, weekend, c["sources"], pool, baseline, phrases)
         with open(os.path.join(briefs_dir, f"{i:02d}_{cand.get('strategy')}.txt"), "w") as f:
             f.write(b.user_message())
-        if not live:
-            c["title_note"] = "brief ready (run with --titles to write it)"
+        if not live or (only and i not in only):
+            prior = (previous or {}).get((c["label"], tuple(c["numbers"])))
+            if prior and prior.get("title_verdict"):
+                c.update({k: prior[k] for k in ("title", "alternative", "title_verdict", "title_logic",
+                                                "title_options", "title_note") if k in prior})
+            else:
+                c["title_note"] = "brief ready (run with --titles to write it)"
             continue
         t = aragorn.write(b, client, [o for o in others if o not in b.names])
         c.update({"title": t.title, "alternative": t.alternative, "title_verdict": t.verdict,
@@ -301,6 +307,7 @@ def main(argv=None) -> int:
     ap.add_argument("--claude", action="store_true", help="run the live Claude selection and titles (paid call)")
     ap.add_argument("--titles", action="store_true",
                     help="write titles with the Aragorn method (one paid Claude call per card)")
+    ap.add_argument("--title-cards", default=None, help="with --titles: only these card numbers, e.g. 5 or 2,5")
     ap.add_argument("--cards", type=int, default=8, help="maximum cards to show")
     ap.add_argument("--all", action="store_true", help="review mode: show every ranked story, not just today's slots")
     args = ap.parse_args(argv)
@@ -354,7 +361,11 @@ def main(argv=None) -> int:
     cards = build_cards(result["payload"], report, picks, imdb, args.cards)
     out_dir = os.path.join(ROOT, "out", "cards", run_date.isoformat())
     os.makedirs(out_dir, exist_ok=True)
-    titles_report = write_titles(cards, gc, report, out_dir, live=args.titles)
+    only = {int(x) for x in args.title_cards.split(",")} if args.title_cards else None
+    previous = {}
+    if only and os.path.exists(os.path.join(out_dir, "cards.json")):   # keep titles already written today
+        previous = {(c["label"], tuple(c["numbers"])): c for c in json.load(open(os.path.join(out_dir, "cards.json")))}
+    titles_report = write_titles(cards, gc, report, out_dir, live=args.titles, only=only, previous=previous)
     md = render(cards, run_date, report)
     open(os.path.join(out_dir, "cards.md"), "w").write(md)
     json.dump([{k: v for k, v in c.items() if not k.startswith("_")} for c in cards],
