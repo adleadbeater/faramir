@@ -77,10 +77,13 @@ def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
         if len(other) >= 4 and other.lower() not in allowed and re.search(
                 r"(?<!\w)" + re.escape(other) + r"(?!\w)", t, re.I):
             r.append(f"film_not_in_story: '{other}'")
-    genres = {g.lower() for g in (getattr(brief, "genres", None) or [])}
-    if {"action", "thriller"} <= genres and re.search(r"(?<![\w-])thriller", t, re.I) \
+    if getattr(brief, "film_genre_phrase", None) == "Action Thriller" and re.search(r"thriller", t, re.I) \
             and not re.search(r"(?<![\w-])action thriller", t, re.I):
-        w.append("genre: an Action + Thriller film should be called an 'Action Thriller'")
+        r.append("genre_phrase: call it an 'Action Thriller'")
+    comp, masked_as = getattr(brief, "comp_title", None), getattr(brief, "comp_masked_as", None)
+    if comp and masked_as and not re.search(re.escape(comp), t, re.I) \
+            and re.search(r"best picture|classic|winner", t, re.I) and masked_as.split(" ", 2)[-1].lower() not in t.lower():
+        r.append(f"masked_comparison_needs_genre: describe it as '{masked_as}'")
     for phrase in data.AVOID:
         if re.search(r"(?<![\w-])" + re.escape(phrase) + r"(?![\w])", t, re.I):
             w.append(f"avoid_list: '{phrase}'")

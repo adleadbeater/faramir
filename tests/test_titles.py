@@ -131,7 +131,7 @@ def test_an_over_length_option_is_trimmed_then_rechecked():
                 return SimpleNamespace(content=[SimpleNamespace(text='{"title": "Clayface Officially Takes No. 1 at the Box Office"}')],
                                        usage=SimpleNamespace(input_tokens=100, output_tokens=20))
             return super().create(**kw)
-    long = "Clayface, the Gritty New Thriller From the Studio, Officially Takes No. 1 at the Weekend Box Office"
+    long = "Clayface, the Shapeshifting Supervillain Movie From the Studio Behind It All, Officially Takes No. 1 This Weekend"
     t = aragorn.write(mk(TAKEOVER), TrimClient([{"mechanism": "MILESTONE", "title": long}]), [])
     assert t.title == "Clayface Officially Takes No. 1 at the Box Office" and t.options[0]["original_title"] == long
     assert t.usage["input_tokens"] == 9100
@@ -155,6 +155,19 @@ def test_comparison_genres_are_on_the_fact_sheet_and_action_thrillers_keep_their
     comp = {**CHASE["comp"], "genres": ["Crime", "Thriller"], "is_best_picture": True}
     b = mk({**CHASE, "comp": comp})
     assert "genres: Crime, Thriller · Best Picture winner" in b.fact_sheet
-    action = brief_mod.build(FILM, CHASE, {"genres": ["Action", "Thriller"]}, "2026-10-27", None, [], POOL, 8_000, [])
-    assert check("Clayface's Thriller Is About to Pass The Sting", action).warnings
-    assert not check("Clayface's Action Thriller Is About to Pass The Sting", action).warnings
+    action = brief_mod.build(FILM, CHASE, {"genres": ["Adventure", "Thriller"]}, "2026-10-27", None, [], POOL, 8_000, [])
+    assert action.film_genre_phrase == "Action Thriller" and "Action Thriller" in action.user_message()
+    assert not check("Clayface's Action-Adventure Thriller Is About to Pass The Sting", action).ok
+    assert check("Clayface's Action Thriller Is About to Pass The Sting", action).ok
+    masked = mk({**CHASE, "comp": comp})
+    assert masked.comp_masked_as == "a Best Picture-Winning Crime Thriller" and "REQUIRED FOR THIS STORY" in masked.user_message()
+    assert not check("Clayface Is About to Pass a Best Picture Winner's Gross", masked).ok
+    assert check("Clayface Is About to Pass a Best Picture-Winning Crime Thriller", masked).ok
+    assert check("Clayface Is About to Pass 'The Sting'", masked).ok
+
+
+def test_deterministic_shortening_keeps_protected_words():
+    t = "Anne Hathaway's Psychological Thriller Is Closing In On a Best Picture-Winning Crime Thriller Worldwide"
+    short = aragorn.shorten(t, 95)
+    assert len(short) <= 95 and "Best Picture-Winning Crime Thriller" in short and "Anne Hathaway" in short
+    assert aragorn.shorten("Brad Pitt's Action Thriller Officially Passes X at the Worldwide Box Office", 60).count("Action Thriller") == 1

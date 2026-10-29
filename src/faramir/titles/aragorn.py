@@ -52,7 +52,7 @@ def _parse(text: str) -> list[dict]:
 
 
 MAX_TRIMS = 2
-TRIM_PROMPT = """You shorten MovieWeb News titles to at most {n} characters. Follow the MovieWeb Title Crafting Rules
+TRIM_PROMPT = """You repair MovieWeb News titles: at most {n} characters, plus any fix listed after the title. Follow the MovieWeb Title Crafting Rules
 trimming order: cut the untested word first, the redundant fact second, the genre modifier third. Never cut
 "Officially", never shorten "Action Thriller", and never strip the genre from a masked film ("a Best
 Picture-Winning Crime Thriller" keeps "Crime Thriller"). Keep the same facts, the same named films and
@@ -60,11 +60,30 @@ people, and the same tense. Add nothing.
 Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
 
 
-def _trim(client, title: str) -> tuple[str | None, dict]:
+FIXABLE = ("too_long", "genre_phrase", "masked_comparison_needs_genre")
+# Deterministic cuts, in the Title Crafting Rules' trimming order (untested words, redundant facts, then
+# modifiers). Never touches "Officially", "Action Thriller" or a masked film's genre.
+CUTS = [(r" at the Worldwide Box Office\b", " Worldwide"), (r" at the Domestic Box Office\b", " Domestically"),
+        (r"\bIs Closing In On\b", "Closes In On"), (r"\bIs About to Pass\b", "Nears"),
+        (r"\b(?:Psychological|Gritty|New|Raunchy|Long-Awaited|Disturbing) (?=(?:[A-Z][\w-]* )?(?:Thriller|Comedy|Drama|Epic)\b)", ""),
+        (r" at the Box Office\b", "")]
+
+
+def shorten(title: str, limit: int) -> str:
+    for pattern, repl in CUTS:
+        if len(title) <= limit:
+            break
+        title = re.sub(pattern, repl, title, count=1)
+    return title
+
+
+def _trim(client, title: str, reasons: list[str] | None = None) -> tuple[str | None, dict]:
+    """One repair call: shorten, and fix the house-rule problems the check named."""
     from faramir.titles.check import MAX_CHARS
+    fixes = "\n".join(f"- Fix: {r.split(': ', 1)[-1]}" for r in (reasons or []) if not r.startswith("too_long"))
     try:
         resp = client.messages.create(model=MODEL, max_tokens=200, system=TRIM_PROMPT.format(n=MAX_CHARS - 3),
-                                      messages=[{"role": "user", "content": title}])
+                                      messages=[{"role": "user", "content": title + (f"\n{fixes}" if fixes else "")}])
         text = "".join(getattr(b, "text", "") for b in resp.content)
         usage = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}
         return json.loads(text[text.find("{"): text.rfind("}") + 1]).get("title"), usage
@@ -87,9 +106,15 @@ def write(brief, client, other_titles: list[str]) -> Titled:
     passing, trims = [], 0
     for o in options:
         c = check(str(o.get("title", "")), brief, other_titles)
-        if not c.ok and all(x.startswith("too_long") for x in c.reasons) and trims < MAX_TRIMS:
+        if not c.ok and all(x.startswith("too_long") for x in c.reasons):
+            from faramir.titles.check import MAX_CHARS
+            cut = shorten(str(o["title"]), MAX_CHARS)
+            if cut != o["title"] and check(cut, brief, other_titles).ok:
+                o["original_title"], o["title"] = o["title"], cut
+                c = check(cut, brief, other_titles)
+        if not c.ok and all(x.startswith(FIXABLE) for x in c.reasons) and trims < MAX_TRIMS:
             trims += 1
-            short, u = _trim(client, str(o["title"]))
+            short, u = _trim(client, str(o["title"]), c.reasons)
             for k in usage:
                 usage[k] += u.get(k, 0)
             if short:

@@ -43,6 +43,9 @@ class Brief:
     rank_evidence: dict = field(default_factory=dict)
     opening: bool = False
     genres: list = field(default_factory=list)
+    film_genre_phrase: str | None = None
+    comp_title: str | None = None
+    comp_masked_as: str | None = None
     cerebro_block: str = ""
     power_block: str = ""
 
@@ -53,7 +56,40 @@ class Brief:
         if self.power_block:
             parts.append(self.power_block)
         parts.append("ARTICLE BODY (read this FIRST, reframe must stay true to it):\n" + self.fact_sheet)
+        required = []
+        if self.film_genre_phrase == "Action Thriller":
+            required.append(f"- When you name {self.film['title']}'s genre, call it an \"Action Thriller\", exactly "
+                            "(not \"Thriller\", not \"Action-Adventure Thriller\").")
+        if self.comp_title and self.comp_masked_as:
+            required.append(f"- If you don't name '{self.comp_title}', describe it as \"{self.comp_masked_as}\": a masked "
+                            "film must keep its genre (never just \"a Best Picture Winner\" or \"a Classic\").")
+        if required:
+            parts.append("REQUIRED FOR THIS STORY (house rules; titles that break them are rejected):\n" + "\n".join(required))
         return "\n\n".join(parts)
+
+
+def genre_phrase(genres: list[str]) -> str | None:
+    """The MovieWeb genre phrase a film should carry (Rob, 2026-10-28: Thriller + Action or Adventure is an
+    'Action Thriller', MovieWeb's best-performing genre phrase)."""
+    g = set(genres or [])
+    if "Thriller" in g and g & {"Action", "Adventure"}:
+        return "Action Thriller"
+    if "Thriller" in g and "Crime" in g:
+        return "Crime Thriller"
+    if "Science Fiction" in g:
+        return "Sci-Fi"
+    if "Thriller" in g:
+        return "Thriller"
+    return None
+
+
+def comp_descriptor(comp: dict) -> str | None:
+    """How to describe a masked comparison film: honour + genre ('a Best Picture-Winning Crime Thriller')."""
+    phrase = genre_phrase(comp.get("genres") or []) or next(iter(comp.get("genres") or []), None)
+    if not phrase:
+        return None
+    honour = "Best Picture-Winning " if comp.get("is_best_picture") else "Classic " if comp.get("is_classic") else ""
+    return f"a {honour}{phrase}"
 
 
 def _status(cand: dict) -> str:
@@ -143,6 +179,8 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
     draft = _draft(strategy, title, comp, cand, v)
     return Brief(strategy, status, card_film, draft, (cand.get("rationale") or "").split(" · sources:")[0],
                  "\n".join(lines), figures, names, people, rank_evidence, opening=opening, genres=genres,
+                 film_genre_phrase=genre_phrase(genres), comp_title=comp.get("title"),
+                 comp_masked_as=comp_descriptor(comp) if comp else None,
                  cerebro_block=data.demand_block(d, baseline_sa), power_block=data.power_words_block(phrases, baseline_sa))
 
 
