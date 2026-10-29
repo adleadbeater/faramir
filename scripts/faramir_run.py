@@ -139,8 +139,9 @@ def _numbers(film: dict, c: dict) -> list[str]:
                      f"{money(film['worldwide_today']) if film.get('worldwide_today') else 'worldwide n/a'} worldwide")
         comp = c.get("comp")
         if comp:
-            lines.append(f"{comp['title']} ({comp.get('release_year')}): {money(comp.get('domestic_lifetime') or 0)} domestic · "
-                         f"{money(comp.get('worldwide_lifetime') or 0)} worldwide (lifetime)")
+            dom_l, ww_l = comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")
+            lines.append(f"{comp['title']} ({comp.get('release_year')}): "
+                         f"{money(dom_l) if dom_l else 'n/a'} domestic · {money(ww_l) if ww_l else 'n/a'} worldwide (lifetime)")
         elif c.get("threshold_value"):
             lines.append(f"Milestone: {money(c['threshold_value'])} {c['axis']}")
         return lines

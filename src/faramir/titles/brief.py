@@ -41,6 +41,7 @@ class Brief:
     names: list[str]
     people: list[str]
     rank_evidence: dict = field(default_factory=dict)
+    opening: bool = False
     cerebro_block: str = ""
     power_block: str = ""
 
@@ -84,9 +85,10 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
                      + (f"; {money(ww)} worldwide" if ww else "") + " (The Numbers daily chart; Box Office Mojo)")
         figures += [x for x in (dom, ww, card_film.get("domestic_yesterday"), card_film.get("worldwide_yesterday")) if x]
         if comp:
+            dom_l, ww_l = comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")
             lines.append(f"- Comparison: '{comp['title']}' ({comp.get('release_year')}): "
-                         f"{money(comp.get('domestic_lifetime') or 0)} domestic, {money(comp.get('worldwide_lifetime') or 0)} "
-                         f"worldwide lifetime (MovieWeb's comparison corpus)")
+                         f"{money(dom_l) + ' domestic, ' if dom_l else ''}{money(ww_l) + ' worldwide ' if ww_l else ''}"
+                         f"lifetime (MovieWeb's comparison corpus)")
             figures += [x for x in (comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")) if x]
         if cand.get("threshold_value"):
             lines.append(f"- Milestone: {money(cand['threshold_value'])} {cand.get('axis')}")
@@ -119,13 +121,16 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
                  + (f"; people: {', '.join(people)}" if people else ""))
     lines.append("SOURCES: " + " · ".join(sources))
     rank_evidence = {"chart_rank": v.get("rank"), "tier": v.get("tier"), "weekends": v.get("weekends")}
+    opening = v.get("week_number") == 1 or "opening weekend" in (cand.get("rationale") or "").lower()
+    if opening:
+        lines.insert(4, "- This is the film's OPENING weekend.")
 
     d = data.demand(pool, [title, director, *cast, collection, comp.get("title") or ""],
                     [data.GENRE_TAGS.get(g, g) for g in genres[:2]] + ["Box Office"])
     draft = _draft(strategy, title, comp, cand, v)
     return Brief(strategy, status, card_film, draft, (cand.get("rationale") or "").split(" · sources:")[0],
-                 "\n".join(lines), figures, names, people, rank_evidence,
-                 data.demand_block(d, baseline_sa), data.power_words_block(phrases, baseline_sa))
+                 "\n".join(lines), figures, names, people, rank_evidence, opening=opening,
+                 cerebro_block=data.demand_block(d, baseline_sa), power_block=data.power_words_block(phrases, baseline_sa))
 
 
 def _draft(strategy, title, comp, cand, v) -> str:

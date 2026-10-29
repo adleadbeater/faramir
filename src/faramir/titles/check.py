@@ -8,13 +8,16 @@ Crafting Rules (avoid list) are warnings, not failures.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 
 from faramir.titles import data
 from faramir.validate import ANTICIPATED_RE, COMPLETED_RE, parse_money
 
-MAX_CHARS = 85
+MAX_CHARS = int(os.environ.get("FARAMIR_TITLE_MAX_CHARS", "85"))   # Title Crafting Rules §9: 85 hard cap
+FIRST_RE = re.compile(r"(?<![\w-])(first|only|ever|never)(?![\w])", re.I)
+OPENING_RE = re.compile(r"(?<![\w-])(opening weekend|opening|debuts?|opens)(?![\w])", re.I)
 RANK_RE = re.compile(r"(?<![\w-])(?:no\.\s?(\d+)|#(\d+)|number one|top[- ](\d+))(?![\w])", re.I)
 RECORD_RE = re.compile(r"(?<![\w-])(record|biggest|largest|highest[- ]grossing|all[- ]time|career[- ]best|best[- ]ever)(?![\w])", re.I)
 SOFT_RE = re.compile(r"(?<![\w-])(almost|nearly|could)(?![\w])", re.I)
@@ -63,6 +66,10 @@ def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
             r.append(f"rank_unsupported: '{m.group(0)}'")
     if RECORD_RE.search(t) and brief.strategy != "star_record":
         r.append(f"record_unsupported: '{RECORD_RE.search(t).group(0)}'")
+    if FIRST_RE.search(t):
+        r.append(f"claim_unsupported: '{FIRST_RE.search(t).group(0)}' (firsts and onlys aren't on the fact sheet)")
+    if OPENING_RE.search(t) and not getattr(brief, "opening", False):
+        r.append("opening_unsupported: the fact sheet doesn't say this is the film's opening")
     allowed = {n.lower() for n in brief.names}
     for other in other_titles or []:
         if len(other) >= 4 and other.lower() not in allowed and re.search(

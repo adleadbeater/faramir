@@ -17,7 +17,6 @@ from faramir.titles.check import check
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 CONFIG = os.path.join(ROOT, "config", "titles")
 MODEL = "claude-sonnet-4-6"          # Aragorn's model (aragorn.config.yaml)
-TEMPERATURE = 0.3
 MAX_TOKENS = 3072
 
 
@@ -52,10 +51,29 @@ def _parse(text: str) -> list[dict]:
     return json.loads(t[start:end + 1]) if start >= 0 else []
 
 
+MAX_TRIMS = 2
+TRIM_PROMPT = """You shorten MovieWeb News titles to at most {n} characters. Follow the MovieWeb Title Crafting Rules
+trimming order: cut the untested word first, the redundant fact second, the genre modifier third. Never cut
+"Officially". Keep the same facts, the same named films and people, and the same tense. Add nothing.
+Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
+
+
+def _trim(client, title: str) -> tuple[str | None, dict]:
+    from faramir.titles.check import MAX_CHARS
+    try:
+        resp = client.messages.create(model=MODEL, max_tokens=200, system=TRIM_PROMPT.format(n=MAX_CHARS),
+                                      messages=[{"role": "user", "content": title}])
+        text = "".join(getattr(b, "text", "") for b in resp.content)
+        usage = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}
+        return json.loads(text[text.find("{"): text.rfind("}") + 1]).get("title"), usage
+    except Exception:  # noqa: BLE001
+        return None, {}
+
+
 def write(brief, client, other_titles: list[str]) -> Titled:
     try:
-        resp = client.messages.create(model=MODEL, max_tokens=MAX_TOKENS, temperature=TEMPERATURE,
-                                      system=system_prompt(), messages=[{"role": "user", "content": brief.user_message()}])
+        # Aragorn sets temperature 0.3 in its Node client; Faramir's pinned Python SDK takes the model default.
+        resp = client.messages.create(model=MODEL, max_tokens=MAX_TOKENS, system=system_prompt(), messages=[{"role": "user", "content": brief.user_message()}])
         text = "".join(getattr(b, "text", "") for b in resp.content)
         usage = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}
         options = _parse(text)
@@ -64,9 +82,17 @@ def write(brief, client, other_titles: list[str]) -> Titled:
     if any(str(o.get("mechanism", "")).upper() == "KILL" for o in options):
         kill = next(o for o in options if str(o.get("mechanism", "")).upper() == "KILL")
         return Titled(None, None, options, "kill", kill.get("logic", ""), usage)
-    passing = []
+    passing, trims = [], 0
     for o in options:
         c = check(str(o.get("title", "")), brief, other_titles)
+        if not c.ok and all(x.startswith("too_long") for x in c.reasons) and trims < MAX_TRIMS:
+            trims += 1
+            short, u = _trim(client, str(o["title"]))
+            for k in usage:
+                usage[k] += u.get(k, 0)
+            if short:
+                o["original_title"], o["title"] = o["title"], short
+                c = check(short, brief, other_titles)
         o["check"] = {"ok": c.ok, "reasons": c.reasons, "warnings": c.warnings}
         if c.ok:
             passing.append(o)

@@ -113,3 +113,25 @@ def test_writer_reports_a_kill_and_never_raises():
     class Boom:
         messages = SimpleNamespace(create=lambda **kw: (_ for _ in ()).throw(RuntimeError("down")))
     assert aragorn.write(mk(TAKEOVER), Boom(), []).verdict == "error"
+
+
+def test_firsts_and_openings_need_the_fact_sheet():
+    b = mk(TAKEOVER)
+    assert not check("DCU's First Sci-Fi Thriller Officially Tops the Box Office", b).ok
+    assert not check("Clayface Officially Takes No. 1 in Its Opening Weekend", b).ok
+    opening = mk({**TAKEOVER, "rationale": "Takeover · Clayface is No. 1 … in its opening weekend."})
+    assert opening.opening and check("Clayface Officially Takes No. 1 in Its Opening Weekend", opening).ok
+
+
+def test_an_over_length_option_is_trimmed_then_rechecked():
+    class TrimClient(FakeClient):
+        def create(self, **kw):
+            self.calls.append(kw)
+            if kw["max_tokens"] == 200:
+                return SimpleNamespace(content=[SimpleNamespace(text='{"title": "Clayface Officially Takes No. 1 at the Box Office"}')],
+                                       usage=SimpleNamespace(input_tokens=100, output_tokens=20))
+            return super().create(**kw)
+    long = "Clayface, the Gritty New Thriller From the Studio, Officially Takes No. 1 at the Weekend Box Office"
+    t = aragorn.write(mk(TAKEOVER), TrimClient([{"mechanism": "MILESTONE", "title": long}]), [])
+    assert t.title == "Clayface Officially Takes No. 1 at the Box Office" and t.options[0]["original_title"] == long
+    assert t.usage["input_tokens"] == 9100
