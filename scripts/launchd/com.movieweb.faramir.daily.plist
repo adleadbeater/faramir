@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Faramir daily run on Rob's Mac: 2pm local time, every day. If the Mac is asleep at 2pm, launchd
+<!-- Faramir daily run on Rob's Mac: 10am local (Eastern) time, every day, matching the current build's intended 10am ET. If the Mac is asleep at 2pm, launchd
      runs it on wake. Install: cp to ~/Library/LaunchAgents and `launchctl bootstrap gui/$(id -u) <file>`. -->
 <plist version="1.0">
 <dict>
@@ -11,7 +11,7 @@
         <string>/Users/Robert/Downloads/faramir/scripts/daily_run.sh</string>
     </array>
     <key>StartCalendarInterval</key>
-    <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
     <key>StandardOutPath</key><string>/Users/Robert/Downloads/faramir/out/logs/launchd.out.log</string>
     <key>StandardErrorPath</key><string>/Users/Robert/Downloads/faramir/out/logs/launchd.err.log</string>
     <key>RunAtLoad</key><false/>

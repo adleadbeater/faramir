@@ -1,10 +1,10 @@
 #!/bin/bash
 # Faramir's daily run: today's cards with titles, once a day.
 #
-# Scheduled on Rob's Mac by launchd (scripts/launchd/com.movieweb.faramir.daily.plist) at 2pm local
+# Scheduled on Rob's Mac by launchd (scripts/launchd/com.movieweb.faramir.daily.plist) at 10am local
 # time; the same script is meant to run unchanged on the Shell Agent VM later (cron/systemd timer).
 #
-# - Waits for The Numbers to post yesterday's daily chart: up to 6 tries, 30 minutes apart.
+# - Waits for The Numbers to post yesterday's daily chart: up to 8 tries, 30 minutes apart (until 1:30pm).
 # - Runs once per day: a finished day is marked, so a second trigger (e.g. the Mac waking) does nothing.
 # - Logs to out/logs/daily-YYYY-MM-DD.log and posts a macOS notification when the cards are ready.
 # - Never posts to Slack or writes Google Sheets (faramir_run.py captures Slack; local store only).
@@ -17,7 +17,7 @@ LOG_DIR="$REPO/out/logs"
 CARDS_DIR="$REPO/out/cards/$TODAY"
 DONE="$CARDS_DIR/.done"
 LOCK="$REPO/out/.daily_run.lock"
-TRIES="${FARAMIR_DAILY_TRIES:-6}"
+TRIES="${FARAMIR_DAILY_TRIES:-8}"
 WAIT="${FARAMIR_DAILY_WAIT_SECONDS:-1800}"
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/daily-$TODAY.log"
