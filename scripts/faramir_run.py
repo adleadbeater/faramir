@@ -23,6 +23,7 @@ import glob
 import importlib.util
 import json
 import os
+import re
 import sys
 from datetime import date, timedelta
 from urllib.parse import urlparse
@@ -224,6 +225,13 @@ def _credits(tmdb_id, cache_path: str) -> dict:
     return cache.get(key, {})
 
 
+def _first_reason(logic: str) -> str:
+    """The kill reasoning's first substantive sentence, for a one-line card note."""
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", logic or "") if x.strip()]
+    sentences = [x for x in sentences if not x.lower().startswith("all three kill")] or sentences
+    return sentences[0] if sentences else "too soft to run"
+
+
 def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, only: set | None = None,
                  previous: dict | None = None) -> str:
     """Build each card's title brief; with live=True, write titles with the Aragorn method."""
@@ -268,7 +276,7 @@ def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, 
         c.update({"title": t.title, "alternative": t.alternative, "title_verdict": t.verdict,
                   "title_logic": t.note, "title_options": t.options})
         if t.verdict == "kill":
-            c["title_note"] = "Aragorn method says the story is too soft to run: " + t.note
+            c["title_note"] = "Pass: " + _first_reason(t.note)
         elif not t.title:
             c["title_note"] = f"no title passed the fact check ({t.verdict})"
         for k in tokens:
@@ -363,7 +371,7 @@ def main(argv=None) -> int:
     os.makedirs(out_dir, exist_ok=True)
     only = {int(x) for x in args.title_cards.split(",")} if args.title_cards else None
     previous = {}
-    if only and os.path.exists(os.path.join(out_dir, "cards.json")):   # keep titles already written today
+    if os.path.exists(os.path.join(out_dir, "cards.json")):   # keep titles already written today
         previous = {(c["label"], tuple(c["numbers"])): c for c in json.load(open(os.path.join(out_dir, "cards.json")))}
     titles_report = write_titles(cards, gc, report, out_dir, live=args.titles, only=only, previous=previous)
     md = render(cards, run_date, report)
