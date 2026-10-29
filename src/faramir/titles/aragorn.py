@@ -61,7 +61,7 @@ Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
 def _trim(client, title: str) -> tuple[str | None, dict]:
     from faramir.titles.check import MAX_CHARS
     try:
-        resp = client.messages.create(model=MODEL, max_tokens=200, system=TRIM_PROMPT.format(n=MAX_CHARS),
+        resp = client.messages.create(model=MODEL, max_tokens=200, system=TRIM_PROMPT.format(n=MAX_CHARS - 3),
                                       messages=[{"role": "user", "content": title}])
         text = "".join(getattr(b, "text", "") for b in resp.content)
         usage = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}

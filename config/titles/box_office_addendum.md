@@ -22,7 +22,7 @@ Judge everything against the **MovieWeb News + Flash News** baseline (S/A ≈ 8,
 - A single-day result must say so ("Thursday", "Daily"); a weekend result is "the weekend box office".
 
 ### Mechanics
-- **85 characters maximum** (hard cap). Trim in this order: the untested word, the redundant fact, the genre modifier. Never "Officially".
+- **95 characters maximum** (editors trim to the site's 85). Trim in this order: the untested word, the redundant fact, the genre modifier. Never "Officially".
 - Single declarative clause, or one leading-comma hook. No em or en dashes, no colon subtitles, no questions.
 - Avoid: Begins Production, Reveals, Teases, Horror (as the genre word), Video Game Adaptation, Exclusive, Divisive, Admits, numeric percentage scores.
 - If the story is genuinely soft (a minor film losing theaters, a small gap to an obscure comparison), say so: return KILL with tier 0 rather than inflate it.

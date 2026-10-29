@@ -91,8 +91,14 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
                          f"lifetime (MovieWeb's comparison corpus)")
             figures += [x for x in (comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")) if x]
         if cand.get("threshold_value"):
-            lines.append(f"- Milestone: {money(cand['threshold_value'])} {cand.get('axis')}")
+            if not comp:
+                lines.append(f"- Milestone: {money(cand['threshold_value'])} {cand.get('axis')}")
             figures.append(cand["threshold_value"])
+            current = ww if cand.get("axis") == "worldwide" else dom
+            if current and cand.get("kind") in ("about_to_pass", "milestone") and cand["threshold_value"] > current:
+                gap = cand["threshold_value"] - current
+                lines.append(f"- Gap still to go: {money(gap)}")
+                figures.append(gap)
         lines.append(f"- Axis: {cand.get('axis')}")
     else:
         when = f"weekend of {weekend}" if weekend else "this weekend"

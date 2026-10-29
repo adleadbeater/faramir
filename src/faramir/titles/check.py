@@ -15,7 +15,9 @@ from dataclasses import dataclass, field
 from faramir.titles import data
 from faramir.validate import ANTICIPATED_RE, COMPLETED_RE, parse_money
 
-MAX_CHARS = int(os.environ.get("FARAMIR_TITLE_MAX_CHARS", "85"))   # Title Crafting Rules §9: 85 hard cap
+# Rob's call (2026-10-28): 95 like Aragorn and Strider — 10 characters of trim headroom for editors over
+# the Title Crafting Rules' 85-character site cap.
+MAX_CHARS = int(os.environ.get("FARAMIR_TITLE_MAX_CHARS", "95"))
 FIRST_RE = re.compile(r"(?<![\w-])(first|only|ever|never)(?![\w])", re.I)
 OPENING_RE = re.compile(r"(?<![\w-])(opening weekend|opening|debuts?|opens)(?![\w])", re.I)
 RANK_RE = re.compile(r"(?<![\w-])(?:no\.\s?(\d+)|#(\d+)|number one|top[- ](\d+))(?![\w])", re.I)

@@ -77,7 +77,7 @@ def test_check_allows_evidence_backed_strong_wording_and_refuses_the_rest():
     assert not check("Clayface Opens to $40M at the Box Office", b).ok
     assert not check("Clayface Beats 'The Dark Knight' at the Box Office", b, ["The Dark Knight"]).ok
     assert not check("Clayface Sets an All-Time Record", b).ok
-    assert not check("Clayface — No. 1", b).ok and not check("x" * 86, b).ok
+    assert not check("Clayface — No. 1", b).ok and not check("x" * 96, b).ok
     c = mk(CHASE)
     assert check("Resident Evil Is About to Pass The Sting at the Domestic Box Office", c).ok
     assert not check("Resident Evil Officially Passes The Sting", c).ok
@@ -135,3 +135,10 @@ def test_an_over_length_option_is_trimmed_then_rechecked():
     t = aragorn.write(mk(TAKEOVER), TrimClient([{"mechanism": "MILESTONE", "title": long}]), [])
     assert t.title == "Clayface Officially Takes No. 1 at the Box Office" and t.options[0]["original_title"] == long
     assert t.usage["input_tokens"] == 9100
+
+
+def test_the_gap_to_the_comparison_is_a_verified_figure():
+    film = {**FILM, "domestic_today": 154_300_000}
+    b = mk(CHASE, film)
+    assert "Gap still to go: $1.7M" in b.fact_sheet
+    assert check("Resident Evil Is $1.7M Away From Passing The Sting", b).ok
