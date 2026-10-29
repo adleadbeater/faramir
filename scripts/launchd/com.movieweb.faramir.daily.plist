@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Faramir daily run on Rob's Mac: 10am local (Eastern) time, every day, matching the current build's intended 10am ET. If the Mac is asleep at 2pm, launchd
+<!-- Faramir daily run on Rob's Mac: 10am local (Eastern) time, every day, matching the current build's intended 10am ET. If the Mac is asleep at 10am, launchd
      runs it on wake. Install: cp to ~/Library/LaunchAgents and `launchctl bootstrap gui/$(id -u) <file>`. -->
 <plist version="1.0">
 <dict>
