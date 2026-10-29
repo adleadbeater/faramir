@@ -54,7 +54,9 @@ def _parse(text: str) -> list[dict]:
 MAX_TRIMS = 2
 TRIM_PROMPT = """You shorten MovieWeb News titles to at most {n} characters. Follow the MovieWeb Title Crafting Rules
 trimming order: cut the untested word first, the redundant fact second, the genre modifier third. Never cut
-"Officially". Keep the same facts, the same named films and people, and the same tense. Add nothing.
+"Officially", never shorten "Action Thriller", and never strip the genre from a masked film ("a Best
+Picture-Winning Crime Thriller" keeps "Crime Thriller"). Keep the same facts, the same named films and
+people, and the same tense. Add nothing.
 Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
 
 

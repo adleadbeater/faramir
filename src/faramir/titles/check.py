@@ -77,6 +77,10 @@ def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
         if len(other) >= 4 and other.lower() not in allowed and re.search(
                 r"(?<!\w)" + re.escape(other) + r"(?!\w)", t, re.I):
             r.append(f"film_not_in_story: '{other}'")
+    genres = {g.lower() for g in (getattr(brief, "genres", None) or [])}
+    if {"action", "thriller"} <= genres and re.search(r"(?<![\w-])thriller", t, re.I) \
+            and not re.search(r"(?<![\w-])action thriller", t, re.I):
+        w.append("genre: an Action + Thriller film should be called an 'Action Thriller'")
     for phrase in data.AVOID:
         if re.search(r"(?<![\w-])" + re.escape(phrase) + r"(?![\w])", t, re.I):
             w.append(f"avoid_list: '{phrase}'")

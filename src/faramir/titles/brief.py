@@ -42,6 +42,7 @@ class Brief:
     people: list[str]
     rank_evidence: dict = field(default_factory=dict)
     opening: bool = False
+    genres: list = field(default_factory=list)
     cerebro_block: str = ""
     power_block: str = ""
 
@@ -88,9 +89,13 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
         figures += [x for x in (dom, ww, card_film.get("domestic_yesterday"), card_film.get("worldwide_yesterday")) if x]
         if comp:
             dom_l, ww_l = comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")
+            comp_genres = ", ".join(comp.get("genres") or [])
+            honours = ", ".join(x for x, on in (("Best Picture winner", comp.get("is_best_picture")),
+                                                ("classic", comp.get("is_classic"))) if on)
             lines.append(f"- Comparison: '{comp['title']}' ({comp.get('release_year')}): "
                          f"{money(dom_l) + ' domestic, ' if dom_l else ''}{money(ww_l) + ' worldwide ' if ww_l else ''}"
-                         f"lifetime (MovieWeb's comparison corpus)")
+                         f"lifetime (MovieWeb's comparison corpus)"
+                         + (f" · genres: {comp_genres}" if comp_genres else "") + (f" · {honours}" if honours else ""))
             figures += [x for x in (comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")) if x]
         if cand.get("threshold_value"):
             if not comp:
@@ -137,7 +142,7 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
                     [data.GENRE_TAGS.get(g, g) for g in genres[:2]] + ["Box Office"])
     draft = _draft(strategy, title, comp, cand, v)
     return Brief(strategy, status, card_film, draft, (cand.get("rationale") or "").split(" · sources:")[0],
-                 "\n".join(lines), figures, names, people, rank_evidence, opening=opening,
+                 "\n".join(lines), figures, names, people, rank_evidence, opening=opening, genres=genres,
                  cerebro_block=data.demand_block(d, baseline_sa), power_block=data.power_words_block(phrases, baseline_sa))
 
 

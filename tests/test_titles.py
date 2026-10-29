@@ -149,3 +149,12 @@ def test_discovery_figures_are_stated_as_having_happened():
             "event_values": {"weekend_gross": 19_500_000, "previous_weekend_gross": 15_600_000},
             "rationale": "Discovery · up 25%"}
     assert mk(disc).status == "confirmed" and "STATUS: HAPPENED" in mk(disc).fact_sheet
+
+
+def test_comparison_genres_are_on_the_fact_sheet_and_action_thrillers_keep_their_name():
+    comp = {**CHASE["comp"], "genres": ["Crime", "Thriller"], "is_best_picture": True}
+    b = mk({**CHASE, "comp": comp})
+    assert "genres: Crime, Thriller · Best Picture winner" in b.fact_sheet
+    action = brief_mod.build(FILM, CHASE, {"genres": ["Action", "Thriller"]}, "2026-10-27", None, [], POOL, 8_000, [])
+    assert check("Clayface's Thriller Is About to Pass The Sting", action).warnings
+    assert not check("Clayface's Action Thriller Is About to Pass The Sting", action).warnings
