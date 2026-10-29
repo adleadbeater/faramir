@@ -233,3 +233,9 @@ def test_descriptors_need_data_behind_them():
     assert check("Resident Evil Is About to Pass a Classic Hit at the Domestic Box Office", c).ok
     assert not check("Resident Evil Is About to Pass a Major Hit at the Domestic Box Office", c).ok
     assert "Supported: Clayface: " in b.user_message() and "DCU" in b.user_message()
+
+
+def test_a_documentary_is_not_a_biopic():
+    facts = [data.film_facts({"genres": ["Documentary"], "keywords": ["biography"], "companies": ["A24"]})]
+    assert data.unsupported_descriptors("A24's Elizabeth Holmes Biopic Gains at the Box Office", facts) == ["Biopic"]
+    assert data.unsupported_descriptors("Biopic Gains", [data.film_facts({"genres": ["Drama"], "keywords": ["biography"]})]) == []

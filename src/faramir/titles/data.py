@@ -293,7 +293,7 @@ DESCRIPTORS = [
     ("Reboot", r"reboot", _kw("reboot")),
     ("Remake", r"remake", _kw("remake")),
     ("R-Rated", r"r-rated", lambda f: f.get("certification") == "R"),
-    ("Biopic", r"biopic", _kw("biography", "biopic")),
+    ("Biopic", r"biopic", lambda f: _kw("biography", "biopic")(f) and "Documentary" not in f["genres"]),
     ("Hit", r"hit", _gross(100e6, 250e6)),
     ("Blockbuster", r"blockbuster|smash|major|juggernaut|megahit", _gross(200e6, 500e6)),
     ("Billion-Dollar", r"billion[- ]dollar", lambda f: (f.get("worldwide") or 0) >= 1e9),
