@@ -45,9 +45,9 @@ from tests.fakes.state_book import init_book  # noqa: E402
 
 ROOT = local_store.ROOT
 REAL_HOSTS = {"www.the-numbers.com", "www.boxofficemojo.com", "api.themoviedb.org"}
-ARWEN = os.path.join(os.path.dirname(os.path.realpath(os.path.expanduser(
-    "~/Library/CloudStorage/GoogleDrive-robert.s@valnetinc.com/.shortcut-targets-by-id/"
-    "13KvU_4c5Z98LjjEbBqcdzx5xaVcLCly-/claude-space-robert-sperduto/arwen/data/cerebro_MW.csv"))))
+# Cerebro snapshot and Power Words export: Faramir's own copies in the local store (scheduled jobs can't
+# read Google Drive folders on macOS). Refresh by copying a newer sanitized cerebro_MW.csv there.
+DATA_DIR = local_store.STORE_DIR
 LABEL = {"overtake": "Overtake", "chase": "Chase", "countdown": "Countdown", "takeover": "Takeover", "hold": "Hold",
          "streak": "Streak", "legs": "Legs", "exit": "Exit", "dark_horse": "Dark Horse", "discovery": "Discovery",
          "star_record": "Star Record", "global_split": "Global Split", "studio_battle": "Studio Battle",
@@ -87,9 +87,9 @@ def _run_daily(gc, run_date: date, out_root: str, claude: bool, cold_start: bool
                "FARAMIR_CORPUS_PATH": os.path.join(ROOT, "data", "corpus.v2.json"),
                "FARAMIR_LEDGER_DIR": os.path.join(local_store.STORE_DIR, "ledger"),
                "FARAMIR_COLD_START": "true" if cold_start else "false"}
-        if os.path.exists(os.path.join(ARWEN, "cerebro_MW.csv")):
-            env["FARAMIR_CEREBRO_SNAPSHOT"] = os.path.join(ARWEN, "cerebro_MW.csv")
-            env["FARAMIR_POWER_WORDS"] = os.path.join(ARWEN, "power_words.json")
+        if os.path.exists(os.path.join(DATA_DIR, "cerebro_MW.csv")):
+            env["FARAMIR_CEREBRO_SNAPSHOT"] = os.path.join(DATA_DIR, "cerebro_MW.csv")
+            env["FARAMIR_POWER_WORDS"] = os.path.join(DATA_DIR, "power_words.json")
         if not claude:
             env["ANTHROPIC_API_KEY"] = "local-placeholder"
         for k, v in env.items():
@@ -238,7 +238,7 @@ def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, 
     from faramir.analytics import cerebro_snapshot as CS
     from faramir.titles import aragorn, brief as brief_mod, data as tdata
 
-    snap_path = os.path.join(ARWEN, "cerebro_MW.csv")
+    snap_path = os.path.join(DATA_DIR, "cerebro_MW.csv")
     if not cards or not os.path.exists(snap_path):
         return "titles: no Cerebro snapshot available" if cards else ""
     snap = CS.load(snap_path)
