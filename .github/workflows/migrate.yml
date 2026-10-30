@@ -1,0 +1,70 @@
+name: Faramir Sheets Migration
+# Deployment stage S5 only — manual, separately approved, fail closed. Run against a COPY of
+# the workbook first. Plan is the default and is read-only. Apply requires: the variable
+# FARAMIR_MIGRATION_ENABLED == 'true', scheduled runs disabled (FARAMIR_ENABLED not 'true'),
+# and confirm_sheet equal to the target sheet id (checked by the script).
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "plan (read-only), dry-run-apply (record only) or apply"
+        type: choice
+        options: [plan, dry-run-apply, apply]
+        default: plan
+      confirm_sheet:
+        description: "For apply: the exact id of the sheet being migrated (the copy's id in the rehearsal)"
+        required: false
+        default: ""
+      copy_sheet_id:
+        description: "Rehearsal (V3): a COPY of the workbook, shared with the service account. Blank = the production sheet"
+        required: false
+        default: ""
+
+concurrency:
+  group: faramir-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: ${{ inputs.mode != 'apply' || (vars.FARAMIR_MIGRATION_ENABLED == 'true' && vars.FARAMIR_ENABLED != 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements-dev.txt
+
+      - name: Tests — must pass before touching the workbook
+        run: python -m pytest -q
+
+      - name: Plan (read-only)
+        if: ${{ inputs.mode == 'plan' }}
+        run: python scripts/migrate_sheets.py
+        env:
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+          FARAMIR_SHEET_ID: ${{ inputs.copy_sheet_id || secrets.FARAMIR_SHEET_ID }}
+
+      - name: Apply (dry run or real)
+        if: ${{ inputs.mode != 'plan' }}
+        run: python scripts/migrate_sheets.py --apply --confirm-sheet "${{ inputs.confirm_sheet }}" ${{ inputs.mode == 'dry-run-apply' && '--dry-run' || '' }}
+        env:
+          # The write guard needs this for a real apply; it applies to this step only. The
+          # repository variable stays false, so no scheduled run can start meanwhile.
+          FARAMIR_ENABLED: ${{ inputs.mode == 'apply' && 'true' || 'false' }}
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+          FARAMIR_SHEET_ID: ${{ inputs.copy_sheet_id || secrets.FARAMIR_SHEET_ID }}
+
+      - name: Keep the migration report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: faramir-migration-${{ github.run_id }}
+          path: out/
+          if-no-files-found: ignore
