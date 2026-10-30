@@ -120,6 +120,9 @@ def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
             w.append("verb_unranked: none of the ranked verbs for this story type")
     for bad in data.unsupported_descriptors(own, getattr(brief, "descriptor_facts", [])):
         r.append(f"descriptor_unsupported: drop '{bad}' (nothing in TMDB or the figures backs it) or use a supported one")
+    films = [(k["title"], (k.get("facts") or {}).get("genres") or []) for k in getattr(brief, "kits", [])]
+    for bad, fixes in data.inaccurate_genres(own, films):
+        r.append(f"genre_inaccurate: '{bad}' isn't the main genre of any film in this story; use {fixes}")
     for phrase in data.AVOID:
         if re.search(r"(?<![\w-])" + re.escape(phrase) + r"(?![\w])", t, re.I):
             w.append(f"avoid_list: '{phrase}'")

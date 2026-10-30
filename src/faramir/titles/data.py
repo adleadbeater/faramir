@@ -138,20 +138,42 @@ ADJACENT = {"Adventure": ["Action", "Epic"], "History": ["Epic"], "War": ["Epic"
 PAIR_TAILS = {"Thriller", "Action", "Comedy", "Drama", "Epic", "Horror", "Western", "Adventure"}
 
 
+def _words(g: str) -> list[str]:
+    return ([GENRE_WORD[g]] if g in GENRE_WORD else []) + ADJACENT.get(g, [])
+
+
 def genre_candidates(tmdb_genres: list[str]) -> list[str]:
-    """Every genre wording that honestly describes a film with these TMDB genres."""
-    words = []
-    for g in tmdb_genres or []:
-        if g in GENRE_WORD:
-            words.append(GENRE_WORD[g])
-        words += ADJACENT.get(g, [])
-    words = list(dict.fromkeys(words))
-    out = list(words)
+    """Every genre wording that honestly describes a film with these TMDB genres. TMDB lists a film's genres
+    most relevant first: every wording must carry the main (first) genre, and may add only the second.
+    'Airport' (1970) is Drama, Thriller, Action: a Drama or a Thriller Drama, never an Action Thriller
+    built from its minor genres (Rob, 2026-10-30)."""
+    genres = [g for g in (tmdb_genres or []) if _words(g)]
+    if not genres:
+        return []
+    main = list(dict.fromkeys(_words(genres[0])))
+    words = list(dict.fromkeys(main + (_words(genres[1]) if len(genres) > 1 else [])))
+    out = list(main)
     for first in words:
         for second in words:
-            if first != second and second in PAIR_TAILS and first not in ("Epic",):
+            if (first != second and second in PAIR_TAILS and first not in ("Epic",)
+                    and (first in main or second in main)):
                 out.append(f"{first} {second}")
     return list(dict.fromkeys(out))
+
+
+_ALL_GENRE_WORDS = sorted({w for g in GENRE_WORD for w in _words(g)}, key=len, reverse=True)
+_GENRE_RX = re.compile(r"(?<![\w-])((?:" + "|".join(map(re.escape, _ALL_GENRE_WORDS)) + r")(?: (?:"
+                       + "|".join(map(re.escape, _ALL_GENRE_WORDS)) + r"))?)(?![\w-])")
+
+
+def inaccurate_genres(text: str, films: list[tuple[str, list[str]]]) -> list[tuple[str, str]]:
+    """Genre wordings in ``text`` (names already stripped) that describe none of the story's ``films``
+    (title, TMDB genres), each with the accurate wordings to use instead."""
+    allowed = {c.lower() for _, genres in films for c in genre_candidates(genres)}
+    if not allowed:
+        return []
+    fixes = "; ".join(f"{t}: {', '.join(genre_candidates(g)[:3])}" for t, g in films if genre_candidates(g))
+    return [(m.group(1), fixes) for m in _GENRE_RX.finditer(text) if m.group(1).lower() not in allowed]
 
 
 SHRINK_K = 10   # same shrinkage strength as the ranker (priority_config shrinkage_k)

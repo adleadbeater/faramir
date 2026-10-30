@@ -79,7 +79,7 @@ def test_fact_sheet_states_status_figures_and_who_may_be_named():
 
 def test_check_allows_evidence_backed_strong_wording_and_refuses_the_rest():
     b = mk(TAKEOVER)
-    assert check(f"DC's Brutal Thriller Officially Takes No. 1 From {SF} at the Box Office", b).ok
+    assert check(f"DC's Brutal Horror Thriller Takes No. 1 From {SF} at the Box Office", b).ok
     assert check("Clayface Dethrones Momoa's Martial Arts Movie at the Weekend Box Office", b).ok   # rival, described
     bare = check("Clayface Dethrones 'Street Fighter' at the Weekend Box Office", b)               # Rob, 2026-10-30
     assert bare.reasons[0].startswith("comparison_bare_title: describe 'Street Fighter'") and "Jason Momoa's" in bare.reasons[0]
@@ -110,7 +110,7 @@ class FakeClient:
 
 def test_writer_uses_aragorns_prompt_and_keeps_only_checked_options():
     fake = FakeClient([{"mechanism": "MILESTONE", "title": "Clayface Takes No. 2 at the Box Office"},
-                       {"mechanism": "GENRE", "title": f"DC's Brutal Thriller Officially Takes No. 1 From {SF} at the Box Office"},
+                       {"mechanism": "GENRE", "title": f"DC's Brutal Horror Thriller Takes No. 1 From {SF} at the Box Office"},
                        {"mechanism": "STAR-LED", "title": "Clayface Dethrones Momoa's Martial Arts Movie at the Weekend Box Office"}])
     t = aragorn.write(mk(TAKEOVER), fake, [])
     assert t.title.startswith("DC's Brutal") and t.alternative.startswith("Clayface Dethrones")
@@ -270,7 +270,7 @@ def test_descriptors_need_data_behind_them():
     b = mk(TAKEOVER)
     assert any(r.startswith("descriptor_unsupported: drop 'Raunchy'") for r in
                check(f"Clayface's Raunchy Thriller Takes No. 1 From {SF} at the Box Office", b).reasons)
-    assert check(f"DCU's R-Rated Thriller Takes No. 1 From {SF} at the Box Office", b).ok
+    assert check(f"DCU's R-Rated Horror Thriller Takes No. 1 From {SF} at the Box Office", b).ok
     assert not check(f"Marvel's Thriller Takes No. 1 From {SF} at the Box Office", b).ok
     c = mk(CHASE)    # The Sting: $156M domestic, $156M worldwide
     assert check("Resident Evil Is About to Pass Paul Newman's Classic Hit at the Domestic Box Office", c).ok
@@ -292,3 +292,14 @@ def test_only_a_later_film_of_a_collection_is_a_sequel():
     assert "Sequel" in data.supported_descriptors([later])
     assert "Sequel" not in data.supported_descriptors([unknown])
     assert data.unsupported_descriptors("Nears the $100 Million Airport Sequel at the Box Office", [first]) == ["Sequel"]
+
+
+def test_every_genre_wording_carries_a_films_main_genre():
+    from faramir.titles.data import genre_candidates, inaccurate_genres
+    # Rob, 2026-10-30: 'Airport' (TMDB: Drama, Thriller, Action) was called an "Action Thriller Hit"
+    assert genre_candidates(["Drama", "Thriller", "Action"]) == ["Drama", "Drama Thriller", "Thriller Drama"]
+    assert genre_candidates(["Horror", "Science Fiction", "Thriller"]) == ["Horror", "Sci-Fi Horror"]
+    films = [("Other Mommy", ["Horror", "Thriller"]), ("Airport", ["Drama", "Thriller", "Action"])]
+    bad = inaccurate_genres("Jessica Chastain's Horror Movie Nears $100 Million Action Thriller Hit", films)
+    assert [b for b, _ in bad] == ["Action Thriller"] and "Airport: Drama" in bad[0][1]
+    assert inaccurate_genres("Jessica Chastain's Horror Movie Nears the $100 Million Thriller Drama", films) == []

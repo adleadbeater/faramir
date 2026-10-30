@@ -62,7 +62,7 @@ same figures and the same tense. Add nothing beyond the fixes listed.
 Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
 
 
-FIXABLE = ("too_long", "genre_phrase", "box_office_missing", "verb_weak", "descriptor_unsupported",
+FIXABLE = ("too_long", "genre_phrase", "genre_inaccurate", "box_office_missing", "verb_weak", "descriptor_unsupported",
            "comparison_bare_title", "comparison_too_masked", "payload_vague")
 # Deterministic cuts, in the Title Crafting Rules' trimming order (untested words, redundant facts, then
 # modifiers). Never touches "Officially", "Action Thriller" or a masked film's genre.
