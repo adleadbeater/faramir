@@ -214,7 +214,7 @@ def _credits(tmdb_id, cache_path: str) -> dict:
     Keywords, studios and rating are what a title's descriptors are checked against."""
     cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
     key = str(tmdb_id)
-    if "keywords" not in cache.get(key, {}) and tmdb_id and int(tmdb_id) > 0:
+    if cache.get(key, {}).get("v") != 2 and tmdb_id and int(tmdb_id) > 0:   # v2: keywords, studios, rating, top 5 cast
         try:
             from faramir.tmdb import _api_key, _get_json_with_retry
             d = _get_json_with_retry(f"/movie/{int(tmdb_id)}",
@@ -224,7 +224,7 @@ def _credits(tmdb_id, cache_path: str) -> dict:
                   for r in x.get("release_dates", []) if r.get("certification")]
             cache[key] = {"genres": [g["name"] for g in d.get("genres", [])],
                           "director": ", ".join(p["name"] for p in crew if p.get("job") == "Director"),
-                          "cast": [p["name"] for p in cast[:3]],
+                          "cast": [p["name"] for p in cast[:5]], "v": 2,
                           "collection": (d.get("belongs_to_collection") or {}).get("name", ""),
                           "keywords": [k["name"] for k in d.get("keywords", {}).get("keywords", [])],
                           "companies": [c["name"] for c in d.get("production_companies", [])],
@@ -233,6 +233,27 @@ def _credits(tmdb_id, cache_path: str) -> dict:
             cache.setdefault(key, {})
         json.dump(cache, open(cache_path, "w"), indent=1)
     return cache.get(key, {})
+
+
+def _credits_by_title(title: str, year: int, cache_path: str) -> dict:
+    """Credits for a film the story names without an id (previous No. 1, rival): TMDB search, recent releases."""
+    cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
+    key = f"title:{title.lower()}"
+    if key not in cache:
+        tid = None
+        try:
+            from faramir.tmdb import _api_key, _get_json_with_retry
+            for y in (year, year - 1):
+                hits = _get_json_with_retry("/search/movie", {"api_key": _api_key(), "query": title, "primary_release_year": y})
+                hits = [h for h in hits.get("results", []) if h.get("title", "").lower() == title.lower()] or hits.get("results", [])[:1]
+                if hits:
+                    tid = hits[0]["id"]
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        cache[key] = tid
+        json.dump(cache, open(cache_path, "w"), indent=1)
+    return _credits(cache[key], cache_path) if cache[key] else {}
 
 
 def _first_reason(logic: str) -> str:
@@ -275,7 +296,11 @@ def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, 
         credits = _credits(film.get("tmdb_id"), os.path.join(local_store.STORE_DIR, "tmdb_details.json"))
         comp_id = (cand.get("comp") or {}).get("tmdb_id")
         comp_credits = _credits(comp_id, os.path.join(local_store.STORE_DIR, "tmdb_details.json")) if comp_id else None
-        b = brief_mod.build(film, cand, credits, data_date, weekend, c["sources"], pool, baseline, phrases, comp_credits)
+        v = cand.get("event_values") or {}
+        year = int((data_date or str(date.today()))[:4])
+        other = {v[k]: _credits_by_title(v[k], year, os.path.join(local_store.STORE_DIR, "tmdb_details.json"))
+                 for k in ("previous_leader", "rival") if v.get(k)}
+        b = brief_mod.build(film, cand, credits, data_date, weekend, c["sources"], pool, baseline, phrases, comp_credits, other)
         with open(os.path.join(briefs_dir, f"{i:02d}_{cand.get('strategy')}.txt"), "w") as f:
             f.write(b.user_message())
         prior = (previous or {}).get((c["label"], tuple(c["numbers"])))

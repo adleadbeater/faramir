@@ -318,6 +318,128 @@ def unsupported_descriptors(title: str, facts: list[dict]) -> list[str]:
             for m in [re.search(r"(?<![\w-])(?:" + rx + r")(?![\w-])", title, re.I)] if m]
 
 
+# How to describe a film (Title Crafting Rules §6 "mask weak tags, name strong ones"; Aragorn's draw hierarchy
+# Star > high-draw Platform > Descriptor > Property). Every film in a story, the comparison included, gets the
+# same treatment: a reader must be able to tell WHICH film it is. A category ("a Best Picture-Winning
+# Thriller", "a Marvel Superhero Blockbuster") identifies nothing; a bare quoted title ('Street Fighter')
+# is the weakest lead on the site. Anchors that identify a film: one of its people, its franchise, its gross.
+PLATFORM_LABELS = ("DCU", "MCU", "Marvel", "DC", "Pixar", "Disney", "A24", "Blumhouse")
+
+
+def _subject(pool: list[Article], name: str) -> dict:
+    arts = [a for a in pool if _tagged(a, name)]
+    return {"name": name, **_stats(arts)} if arts else {"name": name, "articles": 0, "sa": 0, "fr": None}
+
+
+def _shrunk(e: dict, base: float) -> float:
+    return (e["articles"] * e["sa"] + SHRINK_K * base) / (e["articles"] + SHRINK_K)
+
+
+def _millions(x) -> str | None:
+    if not x:
+        return None
+    return f"${x / 1e9:.1f} Billion" if x >= 1e9 else f"${round(x / 1e6):,} Million"
+
+
+IDENTITY = ("Superhero", "Video Game", "Comic Book", "Zombie", "Martial Arts", "Biopic", "Reboot")
+NOUNS = ("Thriller", "Comedy", "Drama", "Epic", "Western", "Documentary", "Musical", "Romance", "Movie", "Adventure")
+PROVEN_PERSON = 3        # MovieWeb articles before a name counts as a draw
+HIT_GROSS = 100e6        # below this, a gross isn't a selling point
+
+
+def possessive(name: str) -> str:
+    return f"{name}'" if name.endswith("s") else f"{name}'s"
+
+
+def film_kit(title: str, credits: dict, pool: list[Article], phrases: list[Phrase], gross=None,
+             honour: str = "", facts: dict | None = None) -> dict:
+    """Everything that can identify and sell one film in a title, with MovieWeb demand for each anchor."""
+    base = statistics.fmean([a.sessions or 0 for a in pool]) if pool else 0
+    cast = [p for p in (credits.get("cast") or [])[:5] if p]
+    directors = [d.strip() for d in (credits.get("director") or "").split(",") if d.strip()]
+    people = [_subject(pool, p) | {"role": "cast" if p in cast else "director"} for p in dict.fromkeys(cast + directors)]
+    strong = lambda e: e["articles"] >= SMALL_SAMPLE and e["sa"] >= base  # noqa: E731
+    proven = sorted((e for e in people if e["articles"] >= PROVEN_PERSON), key=lambda e: -_shrunk(e, base))
+    # A star with real demand leads (Aragorn: STAR-LED is the strongest mechanism); otherwise the best proven name.
+    lead_person = next((e for e in people if e["role"] == "cast" and strong(e)), None) or (proven[0] if proven else None)
+    franchise = re.sub(r"\s*\((?:Film )?Collection\)$|\s+Collection$", "", credits.get("collection") or "").strip()
+    supported = supported_descriptors([facts]) if facts else []
+    labels = [e for e in (_subject(pool, x) for x in supported if x in PLATFORM_LABELS) if e["articles"]]
+    ranked = genre_options(credits.get("genres") or [], pool, phrases)
+    genre = ranked[0]["phrase"] if ranked else (genre_candidates(credits.get("genres") or []) or ["Movie"])[0]
+    identity = next((x for x in IDENTITY if x in supported), "")
+    core = " ".join(x for x in (honour, identity, genre) if x)
+    if not core.endswith(NOUNS):
+        core += " Movie"
+    own = _subject(pool, title)
+    return {"title": title, "title_demand": own, "name_title": strong(own), "people": people, "proven": proven,
+            "lead_person": lead_person, "labels": labels, "lead_label": max(labels, key=lambda e: e["sa"], default=None),
+            "franchise": franchise, "sequel": "Sequel" in supported, "core": core, "genre": genre,
+            "gross": _millions(gross), "hit": bool(gross and gross >= HIT_GROSS), "honour": honour,
+            "facts": facts or {}, "supported": supported}
+
+
+def data_supported(facts: dict) -> list[str]:
+    return supported_descriptors([facts])
+
+
+def _demand(e: dict) -> str:
+    return f"{e['articles']} MovieWeb articles, S/A ≈ {e['sa']:,}"
+
+
+def kit_descriptions(k: dict) -> list[str]:
+    """Ready-made strong descriptions, strongest mechanism first. Each one identifies the film."""
+    out = []
+    if k["lead_person"]:
+        p = k["lead_person"]
+        out.append(f"NAME-LED: \"{possessive(p['name'])} {k['core']}\" ({p['name']}: {_demand(p)})")
+        alt = next((e for e in k["proven"] if e is not p), None)
+        if alt:
+            out.append(f"NAME-LED: \"{possessive(alt['name'])} {k['core']}\" ({alt['name']}: {_demand(alt)})")
+    if k["franchise"]:
+        kind = "Sequel" if k["sequel"] else k["core"]
+        out.append(f"PLATFORM-WIDE: \"the {(k['gross'] + ' ') if k['hit'] else ''}{k['franchise']} {kind}\"")
+    if k["lead_label"]:
+        lab = k["lead_label"]
+        out.append(f"PLATFORM-WIDE: \"{possessive(lab['name'])} {k['core']}\" ({lab['name']}: {_demand(lab)})")
+    if k["hit"]:
+        out.append(f"GENRE-HEAVY: \"{k['gross']} {k['core'].removesuffix(' Movie')}" + (" Hit" if "Hit" in k["supported"] else "") + "\"")
+    top_billed = next((e for e in k["people"] if e["role"] == "cast"), None)
+    if not k["lead_person"] and top_billed:
+        out.append(f"NAME-LED: \"{possessive(top_billed['name'])} {k['core']}\" (top-billed; no MovieWeb track record)")
+    return out
+
+
+def kits_block(kits: list[dict], baseline: int) -> str:
+    lines = ["--- HOW TO DESCRIBE EACH FILM (every film in the story, the comparison included) ---",
+             "Describe every film as strongly as the lead: name-led (a star or director with MovieWeb demand), platform-wide",
+             "(a franchise or studio label readers follow), or genre-heavy (gross + genre, the \"$540 Million Sci-Fi Action Hit\"",
+             "that beat the named version 13,391 to 1,228). The reader must be able to tell WHICH film it is: never a bare",
+             "category (\"a Best Picture-Winning Thriller\", \"a Marvel Superhero Blockbuster\") and never a bare quoted title",
+             f"(quoting a title halves S/A). Name a film's title only if its own MovieWeb tag is strong (baseline ≈ {baseline:,})."]
+    for k in kits:
+        d = k["title_demand"]
+        verdict = "strong: may be named" if k["name_title"] else "weak: describe it, don't name it"
+        lines.append(f"{k['role']}: '{k['title']}' · own tag {d['articles']} articles, S/A ≈ {d['sa']:,} ({verdict})")
+        lines += [f"  - {x}" for x in kit_descriptions(k)]
+        shown = {x.split('"')[1].split("'")[0] for x in kit_descriptions(k)}
+        others = [f"{e['name']} ({e['articles']}, S/A ≈ {e['sa']:,})" for e in k["people"] if e["articles"] and e["name"] not in shown]
+        if others:
+            lines.append("  - other people with MovieWeb demand: " + ", ".join(others))
+    lines.append("--- END HOW TO DESCRIBE ---")
+    return "\n".join(lines)
+
+
+def anchors(k: dict) -> list[str]:
+    """Words that identify this film in a title: its people's surnames, its franchise, its gross."""
+    out = [e["name"] for e in k["people"]] + [e["name"].split()[-1] for e in k["people"] if " " in e["name"]]
+    if k["franchise"]:
+        out.append(k["franchise"])
+    if k["gross"]:
+        out.append(k["gross"])
+    return [a for a in out if a]
+
+
 def genre_block(film: str, options: list[dict], comp: str | None = None, comp_options: list[dict] | None = None) -> str:
     def rows(opts):
         return [f"  - {o['phrase']}: S/A ≈ {o['sa']:,} · {o['n']} uses · {o['basis']}" for o in opts[:6]]

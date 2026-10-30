@@ -37,6 +37,11 @@ def _figure_ok(val: float, tol: float, figures: list[float]) -> bool:
     return any(abs(f - val) <= tol + 1 for f in figures)
 
 
+def _money1(text: str) -> tuple[float, float]:
+    v, tol, _ = parse_money(text)[0]
+    return v, tol
+
+
 def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
     r, w = [], []
     t = title.strip()
@@ -70,9 +75,6 @@ def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
         r.append(f"record_unsupported: '{RECORD_RE.search(t).group(0)}'")
     if not re.search(r"box[- ]office", t, re.I):
         r.append("box_office_missing: every title says 'Box Office' (Rob, 2026-10-28)")
-    leader = (getattr(brief, "rank_evidence", None) or {}).get("previous_leader")
-    if brief.strategy == "takeover" and leader and not re.search(re.escape(leader), t, re.I):
-        r.append(f"takeover_needs_previous_leader: name the film it replaced at No. 1, '{leader}'")
     if FIRST_RE.search(t):
         r.append(f"claim_unsupported: '{FIRST_RE.search(t).group(0)}' (firsts and onlys aren't on the fact sheet)")
     if OPENING_RE.search(t) and not getattr(brief, "opening", False):
@@ -82,21 +84,28 @@ def check(title: str, brief, other_titles: list[str] | None = None) -> Check:
         if len(other) >= 4 and other.lower() not in allowed and re.search(
                 r"(?<!\w)" + re.escape(other) + r"(?!\w)", t, re.I):
             r.append(f"film_not_in_story: '{other}'")
-    comp, masked_as = getattr(brief, "comp_title", None), getattr(brief, "comp_masked_as", None)
     top = getattr(brief, "film_genre_phrase", None)
     if top:
-        own = t
-        for part in (masked_as, comp):
-            if part:
-                own = re.sub(re.escape(part.split(" ", 1)[-1] if part == masked_as else part), " ", own, flags=re.I)
+        # The lead film's description comes first; later genre words describe the other film.
         words = lambda x: re.compile(r"(?<![\w-])" + re.escape(x) + r"(?![\w])", re.I)  # noqa: E731
-        used = [o["phrase"] for o in brief.film_genre_options if words(o["phrase"]).search(own)] \
-            + (["a blended genre"] if re.search(r"\b\w+-(?:Adventure|Action|Thriller)\b", own) else [])
-        if used and not words(top).search(own):
-            r.append(f"genre_phrase: use '{top}', the best-performing accurate genre wording (not {used[0]})")
-    if comp and masked_as and not re.search(re.escape(comp), t, re.I) \
-            and re.search(r"best picture|classic|winner", t, re.I) and masked_as.split(" ", 2)[-1].lower() not in t.lower():
-        r.append(f"masked_comparison_needs_genre: describe it as '{masked_as}'")
+        hits = sorted((m.start(), o["phrase"]) for o in brief.film_genre_options for m in [words(o["phrase"]).search(t)] if m)
+        blend = re.search(r"\b\w+-(?:Adventure|Action|Thriller)\b", t)
+        first = (blend.start(), "a blended genre") if blend and (not hits or blend.start() <= hits[0][0]) else (hits[0] if hits else None)
+        if first and first[1] != top and not (words(top).search(t) and words(top).search(t).start() <= first[0]):
+            r.append(f"genre_phrase: use '{top}', the best-performing accurate genre wording (not {first[1]})")
+    for k in getattr(brief, "kits", [])[1:]:
+        if not k.get("required"):
+            continue
+        named = re.search(r"(?<!\w)" + re.escape(k["title"]) + r"(?!\w)", t, re.I)
+        anchored = any(re.search(r"(?<!\w)" + re.escape(a) + r"(?!\w)", t, re.I) for a in data.anchors(k) if not a.startswith("$")) \
+            or (k["gross"] and _figure_ok(*_money1(k["gross"]), [v for v, _, _ in parse_money(t)]))
+        from faramir.titles.brief import kit_first
+        if named and not anchored and not k["name_title"]:
+            r.append(f"comparison_bare_title: describe '{k['title']}' instead of naming it bare: {kit_first(k)}")
+        elif not named and not anchored:
+            r.append(f"comparison_too_masked: the reader can't tell which film '{k['title']}' is; use {kit_first(k)}")
+    if re.search(r"\d%", t) and not re.search(r"weekend|week\b|day|opening|debut", t, re.I):
+        r.append("payload_vague: a percentage needs its time frame (\"Grows 25% in Its Second Weekend\")")
     own = t
     for n in [*brief.names, *getattr(brief, "people", [])]:
         own = re.sub(re.escape(n), " ", own, flags=re.I)

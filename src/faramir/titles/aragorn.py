@@ -54,14 +54,14 @@ def _parse(text: str) -> list[dict]:
 MAX_TRIMS = 2
 TRIM_PROMPT = """You repair MovieWeb News titles: at most {n} characters, plus any fix listed after the title. Follow the MovieWeb Title Crafting Rules
 trimming order: cut the untested word first, the redundant fact second, the genre modifier third. Never cut
-"Officially" or "Box Office", never shorten the genre wording, and never strip the genre from a masked film ("a Best
-Picture-Winning Crime Thriller" keeps "Crime Thriller"). Keep the same facts, the same named films and
+"Officially" or "Box Office", never shorten the genre wording, and never strip what identifies a described film (its star,
+franchise or gross: "Javier Bardem's Crime Thriller" keeps "Javier Bardem's"). Keep the same facts, the same named films and
 people, and the same tense. Add nothing beyond the fixes listed.
 Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
 
 
-FIXABLE = ("too_long", "genre_phrase", "masked_comparison_needs_genre", "box_office_missing", "takeover_needs_previous_leader",
-           "verb_weak", "descriptor_unsupported")
+FIXABLE = ("too_long", "genre_phrase", "box_office_missing", "verb_weak", "descriptor_unsupported",
+           "comparison_bare_title", "comparison_too_masked", "payload_vague")
 # Deterministic cuts, in the Title Crafting Rules' trimming order (untested words, redundant facts, then
 # modifiers). Never touches "Officially", "Action Thriller" or a masked film's genre.
 CUTS = [(r"\bIs Closing In On\b", "Closes In On"), (r"\bOpening Weekend\b", "Debut"), (r"\bWith an? ", "With "),

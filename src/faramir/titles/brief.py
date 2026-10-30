@@ -46,12 +46,13 @@ class Brief:
     film_genre_phrase: str | None = None
     film_genre_options: list = field(default_factory=list)
     comp_title: str | None = None
-    comp_masked_as: str | None = None
+    kits: list = field(default_factory=list)       # data.film_kit per film: [this film, then the others]
     genre_block: str = ""
     verb_options: list = field(default_factory=list)
     descriptor_facts: list = field(default_factory=list)
     cerebro_block: str = ""
     power_block: str = ""
+    baseline: int = 0
 
     def user_message(self) -> str:
         parts = [f"{self.draft} | {self.context}"]
@@ -61,6 +62,8 @@ class Brief:
             parts.append(self.power_block)
         if self.genre_block:
             parts.append(self.genre_block)
+        if self.kits:
+            parts.append(data.kits_block(self.kits, self.baseline))
         parts.append("ARTICLE BODY (read this FIRST, reframe must stay true to it):\n" + self.fact_sheet)
         required = []
         if self.film_genre_phrase:
@@ -69,38 +72,41 @@ class Brief:
                             f"accurate genre wording on MovieWeb (S/A ≈ {top['sa']:,}, {top['n']} uses). Don't swap in a "
                             "weaker genre word or blend genres (\"Action-Adventure Thriller\").")
         required.append("- Every title must include \"Box Office\".")
-        if self.strategy == "takeover" and self.rank_evidence.get("previous_leader"):
-            required.append(f"- Name the film it replaced at No. 1: '{self.rank_evidence['previous_leader']}'.")
         allowed = [o for o in self.verb_options if o["allowed"]]
         if allowed:
             listing = "; ".join(f"\"{o['phrase']}\" (S/A ≈ {o['sa']:,}, {o['n']} uses, {o['basis']})" for o in allowed)
             weak = [o["phrase"] for o in self.verb_options if not o["allowed"]]
-            required.append(f"- Verb: use one of the strongest proven verbs that are accurate for this story: {listing}. "
+            required.append(f"- Verb: use one of the strongest proven verbs that are accurate for this story, with the other film as "
+                            f"its object (\"[film] Eyes [the other film, described] at the Box Office\"): {listing}. "
                             f"Not: {', '.join(weak)} (weaker or never used in MovieWeb News titles)." if weak else
                             f"- Verb: use one of the strongest proven verbs that are accurate for this story: {listing}.")
-        who = [self.film["title"], self.comp_title]
-        per_film = [f"{who[i]}: {', '.join(ok) if ok else 'none'}" for i, f in enumerate(self.descriptor_facts[:2])
-                    for ok in [data.supported_descriptors([f])]]
+        per_film = [f"{k['title']}: {', '.join(k['supported']) or 'none'}" for k in self.kits]
         unsupported = [x for x in ("Raunchy", "Gritty", "Steamy", "Blockbuster", "Hit")
                        if x not in data.supported_descriptors(self.descriptor_facts)][:3]
         required.append("- Descriptors (tone, franchise, studio, success words like \"Hit\" or \"Major\") must be backed by "
                         "TMDB or the figures, and describe the film they're backed for. Supported: " + "; ".join(per_film)
                         + ". Any other descriptor" + (f" ({', '.join(repr(x) for x in unsupported)}...)" if unsupported else "")
                         + " is rejected. Genre wording is covered above.")
-        if self.comp_title and self.comp_masked_as:
-            required.append(f"- If you don't name '{self.comp_title}', describe it as \"{self.comp_masked_as}\": a masked "
-                            "film must keep its genre (never just \"a Best Picture Winner\" or \"a Classic\").")
+        lead = self.kits[0] if self.kits else None
+        if lead and not lead["name_title"]:
+            required.append(f"- '{self.film['title']}' has little MovieWeb demand of its own (S/A ≈ {lead['title_demand']['sa']:,}): lead "
+                            "with one of its ready-made descriptions instead of its title.")
+        for k in self.kits[1:]:
+            if k["required"]:
+                first = kit_first(k)
+                required.append(f"- Reference {k['role'].lower()} '{k['title']}' as strongly as the lead film, so the reader can tell "
+                                f"which film it is: {first}." + ("" if k["name_title"] else " Not its bare title, not a bare category."))
+        if self.strategy == "discovery":
+            required.append("- Payload: say what happened in words a reader can picture, with its time frame and why it's unusual "
+                            "(\"Grows 25% in Its Second Weekend\" when films that week usually drop). A bare percentage means nothing.")
         if required:
             parts.append("REQUIRED FOR THIS STORY (house rules; titles that break them are rejected):\n" + "\n".join(required))
         return "\n\n".join(parts)
 
 
-def masked_descriptor(comp: dict, options: list[dict]) -> str | None:
-    """How to describe a masked comparison film: honour + its best-performing accurate genre wording."""
-    if not options:
-        return None
-    honour = "Best Picture-Winning " if comp.get("is_best_picture") else "Classic " if comp.get("is_classic") else ""
-    return f"a {honour}{options[0]['phrase']}"
+def kit_first(k: dict) -> str:
+    d = data.kit_descriptions(k)
+    return " or ".join(x.split(": ", 1)[1].split(" (")[0] for x in d[:2]) if d else f"its people or its gross"
 
 
 def _status(cand: dict) -> str:
@@ -113,7 +119,9 @@ def _status(cand: dict) -> str:
 
 
 def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: str | None, sources: list[str],
-          pool: list, baseline_sa: int, phrases: list, comp_credits: dict | None = None) -> Brief:
+          pool: list, baseline_sa: int, phrases: list, comp_credits: dict | None = None,
+          other_credits: dict | None = None) -> Brief:
+    """other_credits: TMDB credits for the other films the story names (previous No. 1, rival), by title."""
     strategy = cand.get("strategy") or "overtake"
     status = _status(cand)
     title = card_film["title"]
@@ -180,7 +188,13 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
         lines.append(f"- Chart: The Numbers weekend chart, {when}")
     lines.append(f"FARAMIR'S SUMMARY: {cand.get('rationale') or ''}")
     names = [title] + [n for n in (comp.get("title"), v.get("previous_leader"), v.get("rival"), v.get("second_place")) if n]
-    people = list(dict.fromkeys(p for p in [director, *cast] if p))
+    kits = _kits(strategy, title, credits, card_film, comp, comp_credits, v, other_credits or {}, pool, phrases)
+    people = list(dict.fromkeys(p for p in [director, *cast, *[e["name"] for k in kits[1:] for e in k["people"]]] if p))
+    for k in kits[1:]:
+        if k["people"] or k["franchise"]:
+            lines.append(f"- {k['title']}: " + "; ".join(x for x in (
+                f"top-billed / director: {', '.join(e['name'] for e in k['people'])}" if k["people"] else "",
+                f"franchise: {k['franchise']}" if k["franchise"] else "") if x))
     lines.append("MAY BE NAMED: films: " + "; ".join(f"'{n}'" for n in dict.fromkeys(names))
                  + (f"; people: {', '.join(people)}" if people else ""))
     lines.append("SOURCES: " + " · ".join(sources))
@@ -195,18 +209,35 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
     d = data.demand(pool, [title, director, *cast, collection, comp.get("title") or ""],
                     [data.GENRE_TAGS.get(g, g) for g in genres[:2]] + ["Box Office"])
     draft = _draft(strategy, title, comp, cand, v)
-    facts = [data.film_facts(credits, card_film.get("domestic_today"), card_film.get("worldwide_today"))]
-    if comp:
-        facts.append(data.film_facts({**(comp_credits or {}), "genres": comp.get("genres") or (comp_credits or {}).get("genres")},
-                                     comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")))
     return Brief(strategy, status, card_film, draft, (cand.get("rationale") or "").split(" · sources:")[0],
                  "\n".join(lines), figures, names, people, rank_evidence, opening=opening, genres=genres,
                  film_genre_phrase=film_opts[0]["phrase"] if film_opts else None, film_genre_options=film_opts,
-                 comp_title=comp.get("title"), comp_masked_as=masked_descriptor(comp, comp_opts) if comp else None,
+                 comp_title=comp.get("title"), kits=kits, baseline=baseline_sa,
                  genre_block=data.genre_block(title, film_opts, comp.get("title"), comp_opts),
                  verb_options=data.verb_options(data.verb_group(strategy, status, bool(comp)), pool, phrases),
-                 descriptor_facts=facts,
+                 descriptor_facts=[k["facts"] for k in kits],
                  cerebro_block=data.demand_block(d, baseline_sa), power_block=data.power_words_block(phrases, baseline_sa))
+
+
+def _kits(strategy, title, credits, card_film, comp, comp_credits, v, other, pool, phrases) -> list[dict]:
+    """The film itself, then each other film the story needs the reader to recognise."""
+    def kit(role, name, cr, gross, honour, required):
+        cr = cr or {}
+        facts = data.film_facts(cr, *gross)
+        k = data.film_kit(name, cr, pool, phrases, gross[1] or gross[0], honour, facts)
+        k.update(role=role, required=required, supported=data.supported_descriptors([facts]))
+        return k
+    out = [kit("THIS FILM", title, credits, (card_film.get("domestic_today"), card_film.get("worldwide_today")), "", True)]
+    if comp:
+        honour = "Best Picture-Winning" if comp.get("is_best_picture") else "Classic" if comp.get("is_classic") else ""
+        cr = {**(comp_credits or {}), "genres": comp.get("genres") or (comp_credits or {}).get("genres") or []}
+        out.append(kit("THE FILM IT'S PASSING" if strategy != "overtake" else "THE FILM IT PASSED", comp["title"], cr,
+                       (comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")), honour, True))
+    for key, role, required in (("previous_leader", "THE FILM IT REPLACED AT NO. 1", strategy == "takeover"),
+                                ("rival", "THE FILM IT OUT-EARNED", strategy == "dark_horse")):
+        if v.get(key):
+            out.append(kit(role, v[key], other.get(v[key]), (None, None), "", required))
+    return out
 
 
 def _draft(strategy, title, comp, cand, v) -> str:

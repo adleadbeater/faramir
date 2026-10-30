@@ -60,7 +60,13 @@ def mk(cand, film=FILM):
     return brief_mod.build(film, cand, {"genres": ["Horror", "Thriller"], "director": "James Watkins", "cast": ["A B"],
                                        "keywords": ["gore", "dc universe (dcu)"], "companies": ["DC Studios"],
                                        "certification": "R"},
-                           "2026-10-27", "2026-10-23", ["https://tn"], POOL, 8_000, [])
+                           "2026-10-27", "2026-10-23", ["https://tn"], POOL, 8_000, [], STING, OTHERS)
+
+
+STING = {"cast": ["Paul Newman", "Robert Redford"], "director": "George Roy Hill", "genres": ["Comedy", "Crime"]}
+OTHERS = {"Street Fighter": {"cast": ["Jason Momoa", "Noah Centineo"], "genres": ["Action"],
+                             "keywords": ["based on video game", "martial arts"]}}
+SF = "Momoa's Video Game Movie"
 
 
 def test_fact_sheet_states_status_figures_and_who_may_be_named():
@@ -73,15 +79,20 @@ def test_fact_sheet_states_status_figures_and_who_may_be_named():
 
 def test_check_allows_evidence_backed_strong_wording_and_refuses_the_rest():
     b = mk(TAKEOVER)
-    assert check("DC's Brutal Thriller Officially Takes No. 1 From 'Street Fighter' at the Box Office With $24M", b).ok
-    assert check("Clayface Dethrones 'Street Fighter' at the Weekend Box Office", b).ok          # rival on the sheet
+    assert check(f"DC's Brutal Thriller Officially Takes No. 1 From {SF} at the Box Office", b).ok
+    assert check("Clayface Dethrones Momoa's Martial Arts Movie at the Weekend Box Office", b).ok   # rival, described
+    bare = check("Clayface Dethrones 'Street Fighter' at the Weekend Box Office", b)               # Rob, 2026-10-30
+    assert bare.reasons[0].startswith("comparison_bare_title: describe 'Street Fighter'") and "Jason Momoa's" in bare.reasons[0]
+    assert check("Clayface Hits No. 1 at the Box Office", b).reasons[0].startswith("comparison_too_masked")
     assert not check("Clayface Takes No. 2 at the Box Office", b).ok
     assert not check("Clayface Opens to $40M at the Box Office", b).ok
     assert not check("Clayface Beats 'The Dark Knight' at the Box Office", b, ["The Dark Knight"]).ok
     assert not check("Clayface Sets an All-Time Record", b).ok
     assert not check("Clayface — No. 1", b).ok and not check("x" * 96, b).ok
     c = mk(CHASE)
-    assert check("Resident Evil Is About to Pass The Sting at the Domestic Box Office", c).ok
+    assert check("Resident Evil Is About to Pass Paul Newman's Crime Comedy at the Domestic Box Office", c).ok
+    assert not check("Resident Evil Is About to Pass The Sting at the Domestic Box Office", c).ok
+    assert not check("Resident Evil Is About to Pass a Classic Crime Comedy at the Domestic Box Office", c).ok
     assert not check("Resident Evil Officially Passes The Sting", c).ok
     assert "anti_pattern: almost/nearly/could" in check("Clayface Nearly Tops the Box Office", b).reasons
 
@@ -99,8 +110,8 @@ class FakeClient:
 
 def test_writer_uses_aragorns_prompt_and_keeps_only_checked_options():
     fake = FakeClient([{"mechanism": "MILESTONE", "title": "Clayface Takes No. 2 at the Box Office"},
-                       {"mechanism": "GENRE", "title": "DC's Brutal Thriller Officially Takes No. 1 From 'Street Fighter' at the Box Office"},
-                       {"mechanism": "STAR-LED", "title": "Clayface Dethrones 'Street Fighter' at the Weekend Box Office"}])
+                       {"mechanism": "GENRE", "title": f"DC's Brutal Thriller Officially Takes No. 1 From {SF} at the Box Office"},
+                       {"mechanism": "STAR-LED", "title": "Clayface Dethrones Momoa's Martial Arts Movie at the Weekend Box Office"}])
     t = aragorn.write(mk(TAKEOVER), fake, [])
     assert t.title.startswith("DC's Brutal") and t.alternative.startswith("Clayface Dethrones")
     sent = fake.calls[0]
@@ -119,10 +130,10 @@ def test_writer_reports_a_kill_and_never_raises():
 
 def test_firsts_and_openings_need_the_fact_sheet():
     b = mk(TAKEOVER)
-    assert not check("DCU's First Sci-Fi Thriller Officially Tops 'Street Fighter' at the Box Office", b).ok
-    assert not check("Clayface Officially Takes No. 1 From Street Fighter in Its Opening Box Office Weekend", b).ok
+    assert not check(f"DCU's First Sci-Fi Thriller Officially Tops {SF} at the Box Office", b).ok
+    assert not check("Clayface Officially Takes No. 1 From Jason Momoa's Movie in Its Opening Box Office Weekend", b).ok
     opening = mk({**TAKEOVER, "rationale": "Takeover · Clayface is No. 1 … in its opening weekend."})
-    assert opening.opening and check("Clayface Officially Takes No. 1 From Street Fighter in Its Opening Box Office Weekend", opening).ok
+    assert opening.opening and check("Clayface Officially Takes No. 1 From Jason Momoa's Movie in Its Opening Box Office Weekend", opening).ok
 
 
 def test_an_over_length_option_is_trimmed_then_rechecked():
@@ -130,12 +141,12 @@ def test_an_over_length_option_is_trimmed_then_rechecked():
         def create(self, **kw):
             self.calls.append(kw)
             if kw["max_tokens"] == 200:
-                return SimpleNamespace(content=[SimpleNamespace(text='{"title": "Clayface Officially Takes No. 1 From Street Fighter at the Box Office"}')],
+                return SimpleNamespace(content=[SimpleNamespace(text='{"title": "Clayface Officially Takes No. 1 From Jason Momoa\'s Movie at the Box Office"}')],
                                        usage=SimpleNamespace(input_tokens=100, output_tokens=20))
             return super().create(**kw)
     long = "Clayface, the Shapeshifting Supervillain Movie From the Studio Behind It All, Officially Takes No. 1 This Weekend"
     t = aragorn.write(mk(TAKEOVER), TrimClient([{"mechanism": "MILESTONE", "title": long}]), [])
-    assert t.title == "Clayface Officially Takes No. 1 From Street Fighter at the Box Office" and t.options[0]["original_title"] == long
+    assert t.title == "Clayface Officially Takes No. 1 From Jason Momoa's Movie at the Box Office" and t.options[0]["original_title"] == long
     assert t.usage["input_tokens"] == 9100
 
 
@@ -143,7 +154,7 @@ def test_the_gap_to_the_comparison_is_a_verified_figure():
     film = {**FILM, "domestic_today": 154_300_000}
     b = mk(CHASE, film)
     assert "Gap still to go: $1.7M" in b.fact_sheet
-    assert check("Resident Evil Is $1.7M Away From Passing The Sting at the Box Office", b).ok
+    assert check("Resident Evil Is $1.7M Away From Passing Paul Newman's Crime Comedy at the Box Office", b).ok
 
 
 def test_discovery_figures_are_stated_as_having_happened():
@@ -169,15 +180,17 @@ def test_genre_wording_is_ranked_by_movieweb_performance_among_accurate_options(
     assert opts[0]["phrase"] == "Action Thriller"                                  # 2 big uses don't beat 12
     comp = {**CHASE["comp"], "genres": ["Crime", "Thriller", "Western"], "is_best_picture": True}
     b = brief_mod.build(FILM, {**CHASE, "comp": comp}, {"genres": ["Adventure", "Thriller"]}, "2026-10-27", None, [],
-                        GENRE_POOL, 8_000, [])
-    assert b.film_genre_phrase == "Action Thriller" and b.comp_masked_as == "a Best Picture-Winning Thriller"
+                        GENRE_POOL, 8_000, [], {"cast": ["Javier Bardem"], "genres": comp["genres"]})
+    assert b.film_genre_phrase == "Action Thriller" and "Javier Bardem's Best Picture-Winning" in b.user_message()
     assert "GENRE WORDING" in b.user_message() and "REQUIRED FOR THIS STORY" in b.user_message()
     assert "genres: Crime, Thriller, Western · Best Picture winner" in b.fact_sheet
-    assert check("Clayface's Action Thriller Eyes a Best Picture-Winning Thriller at the Box Office", b).ok
-    assert not check("Clayface's Action-Adventure Thriller Eyes 'The Sting' at the Box Office", b).ok
-    assert not check("Clayface's Thriller Eyes 'The Sting' at the Box Office", b).ok
-    assert not check("Clayface's Action Thriller Eyes a Best Picture Winner at the Box Office", b).ok
-    assert check("Clayface Is About to Pass 'The Sting' at the Box Office", b).ok      # no genre named: fine
+    bardem = "Javier Bardem's Crime Thriller"
+    assert check(f"Clayface's Action Thriller Eyes {bardem} at the Box Office", b).ok
+    assert not check(f"Clayface's Action-Adventure Thriller Eyes {bardem} at the Box Office", b).ok
+    assert not check(f"Clayface's Thriller Eyes {bardem} at the Box Office", b).ok
+    # Rob, 2026-10-30: a category is "way too masked", a bare title "too unmasked"
+    assert check("Clayface's Action Thriller Eyes a Best Picture-Winning Thriller at the Box Office", b).reasons[0].startswith("comparison_too_masked")
+    assert check("Clayface Is Set to Pass 'The Sting' at the Box Office", b).reasons[0].startswith("comparison_bare_title")
 
 
 def test_deterministic_shortening_keeps_protected_words():
@@ -190,10 +203,10 @@ def test_deterministic_shortening_keeps_protected_words():
 def test_house_rules_box_office_takeover_leader_and_never_blank():
     b = mk(TAKEOVER)
     assert any(r.startswith("box_office_missing") for r in check("Clayface Takes No. 1 From Street Fighter", b).reasons)
-    assert any(r.startswith("takeover_needs_previous_leader") for r in check("Clayface Takes No. 1 at the Box Office", b).reasons)
-    assert "Name the film it replaced at No. 1: 'Street Fighter'" in b.user_message() and "\"Box Office\"" in b.user_message()
+    assert any(r.startswith("comparison_too_masked") for r in check("Clayface Takes No. 1 at the Box Office", b).reasons)
+    assert "Reference the film it replaced at no. 1 'Street Fighter'" in b.user_message() and "\"Box Office\"" in b.user_message()
     long = ("Clayface, the Shapeshifting Supervillain Movie From the Studio Behind It All, Officially Takes No. 1 From "
-            "Street Fighter at the Box Office")
+            "Jason Momoa's Movie at the Box Office")
     class NoTrim(FakeClient):
         def create(self, **kw):
             if kw["max_tokens"] == 200:
@@ -216,21 +229,21 @@ def test_verbs_are_ranked_by_movieweb_titles_within_what_is_true():
 
 def test_weak_verb_is_rejected_and_repairable():
     pool = [art(f"Film Eyes Record {i}", 12_000) for i in range(5)] + [art(f"Film Set to Win {i}", 9_000) for i in range(4)]
-    b = brief_mod.build(FILM, CHASE, {"genres": ["Horror"]}, "2026-10-27", None, ["https://tn"], pool, 8_000, [])
-    c = check("Resident Evil Is About to Pass The Sting at the Domestic Box Office", b)
+    b = brief_mod.build(FILM, CHASE, {"genres": ["Horror"]}, "2026-10-27", None, ["https://tn"], pool, 8_000, [], STING)
+    c = check("Resident Evil Is About to Pass Paul Newman's Crime Comedy at the Domestic Box Office", b)
     assert not c.ok and c.reasons[0].startswith("verb_weak: use 'Eyes' or 'Is Set to Pass'")
-    assert check("Resident Evil Eyes The Sting at the Domestic Box Office", b).ok
+    assert check("Resident Evil Eyes Paul Newman's Crime Comedy at the Domestic Box Office", b).ok
     assert "Verb: use one of the strongest proven verbs" in b.user_message() and "Not: " in b.user_message()
 
 
 def test_descriptors_need_data_behind_them():
     b = mk(TAKEOVER)
     assert any(r.startswith("descriptor_unsupported: drop 'Raunchy'") for r in
-               check("Clayface's Raunchy Thriller Takes No. 1 From 'Street Fighter' at the Box Office", b).reasons)
-    assert check("DCU's R-Rated Thriller Takes No. 1 From 'Street Fighter' at the Box Office", b).ok
-    assert not check("Marvel's Thriller Takes No. 1 From 'Street Fighter' at the Box Office", b).ok
+               check(f"Clayface's Raunchy Thriller Takes No. 1 From {SF} at the Box Office", b).reasons)
+    assert check(f"DCU's R-Rated Thriller Takes No. 1 From {SF} at the Box Office", b).ok
+    assert not check(f"Marvel's Thriller Takes No. 1 From {SF} at the Box Office", b).ok
     c = mk(CHASE)    # The Sting: $156M domestic, $156M worldwide
-    assert check("Resident Evil Is About to Pass a Classic Hit at the Domestic Box Office", c).ok
+    assert check("Resident Evil Is About to Pass Paul Newman's Classic Hit at the Domestic Box Office", c).ok
     assert not check("Resident Evil Is About to Pass a Major Hit at the Domestic Box Office", c).ok
     assert "Supported: Clayface: " in b.user_message() and "DCU" in b.user_message()
 
