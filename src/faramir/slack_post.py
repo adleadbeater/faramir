@@ -168,6 +168,10 @@ def _header_blocks(picks_count: int, active_films_count: int, run_date: date, wa
     return blocks
 
 
+def _source_name(url: str) -> str:
+    return "Box Office Mojo" if "boxofficemojo" in url else "The Numbers" if "the-numbers" in url else url
+
+
 def post_pick(
     bot_token: str,
     channel_id: str,
@@ -217,6 +221,8 @@ def post_pick(
     category_label = category.replace("_", " ").title()
     axis_label = axis.capitalize()
     meta = f"{category_label}  ·  {kind_label}  ·  {axis_label}"
+    if pick.get("card_label"):   # Faramir 2.0 card: its strategy label, as editors see it in the cards
+        meta = f"{pick['card_label']}  ·  {axis_label}"
     if suggestion_id:
         meta += f"  ·  ref {suggestion_id}"
 
@@ -283,7 +289,12 @@ def post_pick(
     ]
     if pick.get("alternative"):
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"Alt: {pick['alternative']}"}]})
-    if pick.get("rationale"):
+    if pick.get("card_label"):
+        # The card's context line above already says why; the sources are the links behind its numbers.
+        if pick.get("sources"):
+            links = "  ·  ".join(f"<{u}|{_source_name(u)}>" for u in pick["sources"])
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"Sources: {links}"}]})
+    elif pick.get("rationale"):
         # Phase 1: one evidence-only line saying why this is a story (built in code, never by the model).
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"Why: {pick['rationale']}"}]})
     blocks.append({"type": "divider"})

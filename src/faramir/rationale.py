@@ -19,6 +19,10 @@ def _src(e: Event) -> str:
     return "; ".join(f"{s.name} {s.as_of}" for s in e.sources)
 
 
+def _days(n: float) -> str:
+    return "1 day" if round(n) == 1 else f"{n:.0f} days"
+
+
 def line(e: Event, secondary: Event | None = None) -> str:
     ev, t = e.evidence, e.target
     name = f"{t.get('title')} ({t.get('release_year')})" if t.get("type") == "comp" else None
@@ -28,10 +32,10 @@ def line(e: Event, secondary: Event | None = None) -> str:
     elif e.strategy == "overtake":
         body = f"crossed {money(ev['target_value'])} {e.axis}; {money(ev['previous'])} the day before"
     elif e.strategy == "chase":
-        body = (f"{money(ev['gap'])} ({ev['gap_pct']:.1%}) behind {name} {e.axis}; about {ev['days_to_pass']:.0f} days "
+        body = (f"{money(ev['gap'])} ({ev['gap_pct']:.1%}) behind {name} {e.axis}; about {_days(ev['days_to_pass'])} "
                 f"at {money(ev['pace_per_day'])}/day · {ev['meaningful_because'][0]}")
     elif e.strategy == "countdown":
-        body = f"{money(ev['gap'])} from {money(ev['target_value'])} {e.axis}; about {ev['days_to_cross']:.0f} days at {money(ev['pace_per_day'])}/day"
+        body = f"{money(ev['gap'])} from {money(ev['target_value'])} {e.axis}; about {_days(ev['days_to_cross'])} at {money(ev['pace_per_day'])}/day"
     else:
         body = e.reason
     status = f" ({e.status})" if e.status in ("provisional", "unverifiable") else ""

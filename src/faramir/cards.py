@@ -204,7 +204,7 @@ def to_pick(card: dict) -> dict:
             "axis": cand.get("axis"), "kind": cand.get("kind"), "threshold_value": cand.get("threshold_value"),
             "angle_category": category, "headline": card["title"], "angle": card.get("context", ""),
             "alternative": card.get("alternative") or "", "strategy": cand.get("strategy"),
-            "numbers": list(card["numbers"]), "sources": list(card["sources"])}
+            "numbers": list(card["numbers"]), "sources": list(card["sources"]), "card_label": card["label"]}
 
 
 def render(cards: list[dict], run_date: date, report: dict) -> str:

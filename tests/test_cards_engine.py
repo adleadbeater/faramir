@@ -46,6 +46,7 @@ def test_ranked_card_is_titled_bound_and_posted(env, tmp_path):
     for msg in msgs:
         text = json.dumps(msg["blocks"])
         assert "Beta Story's Box Office Run Keeps Climbing" in text and "Alt: Beta Story Box Office Alternative" in text
+        assert "Sources: <https://www.the-numbers.com/box-office-chart/" in text and "Why:" not in text
     rows = env["gc"].book("S").worksheet("suggestions").get_all_records()
     assert len(rows) == len(msgs) and len({r["candidate_id"] for r in rows}) == len(rows)
     assert all(r["headline"] == "Beta Story's Box Office Run Keeps Climbing" for r in rows)
