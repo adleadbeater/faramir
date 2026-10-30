@@ -150,6 +150,25 @@ def test_an_over_length_option_is_trimmed_then_rechecked():
     assert t.usage["input_tokens"] == 9100
 
 
+def test_a_repair_that_comes_back_unchanged_gets_a_second_try_told_how_much_to_cut():
+    long = "Clayface, the Shapeshifting Supervillain Movie From the Studio Behind It All, Officially Takes No. 1 This Weekend"
+    good = "Clayface Officially Takes No. 1 From Jason Momoa's Movie at the Box Office"
+
+    class StubbornClient(FakeClient):
+        def create(self, **kw):
+            self.calls.append(kw)
+            if kw["max_tokens"] == 200:
+                out = long if len([c for c in self.calls if c["max_tokens"] == 200]) == 1 else good
+                return SimpleNamespace(content=[SimpleNamespace(text=json.dumps({"title": out}))],
+                                       usage=SimpleNamespace(input_tokens=100, output_tokens=20))
+            return super().create(**kw)
+    fake = StubbornClient([{"mechanism": "MILESTONE", "title": long}])
+    t = aragorn.write(mk(TAKEOVER), fake, [])
+    assert t.verdict == "ok" and t.title == good
+    repair = [c for c in fake.calls if c["max_tokens"] == 200][0]["system"]
+    assert f"({len(long)} now: cut at least {len(long) - 92})" in repair
+
+
 def test_the_gap_to_the_comparison_is_a_verified_figure():
     film = {**FILM, "domestic_today": 154_300_000}
     b = mk(CHASE, film)

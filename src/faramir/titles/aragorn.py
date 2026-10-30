@@ -51,12 +51,13 @@ def _parse(text: str) -> list[dict]:
     return json.loads(t[start:end + 1]) if start >= 0 else []
 
 
-MAX_TRIMS = 2
-TRIM_PROMPT = """You repair MovieWeb News titles: at most {n} characters, plus any fix listed after the title. Follow the MovieWeb Title Crafting Rules
-trimming order: cut the untested word first, the redundant fact second, the genre modifier third. Never cut
-"Officially" or "Box Office", never shorten the genre wording, and never strip what identifies a described film (its star,
-franchise or gross: "Javier Bardem's Crime Thriller" keeps "Javier Bardem's"). Keep the same facts, the same named films and
-people, and the same tense. Add nothing beyond the fixes listed.
+MAX_TRIMS = 4         # repair calls per title (a too-long option gets a second try)
+TRIM_PROMPT = """You repair MovieWeb News titles: at most {n} characters ({length} now: cut at least {cut}), plus any fix
+listed after the title. Follow the MovieWeb Title Crafting Rules trimming order: cut the untested word first, the redundant
+fact second, the extra modifier third. Each film must keep its identifying lead (its star's name, franchise, studio or
+gross: "Javier Bardem's Crime Thriller" keeps "Javier Bardem's"), but a stacked extra descriptor may go ("R-Rated",
+"Comic Book", a second genre word). Never cut "Officially" or "Box Office". Keep the same named films and people, the
+same figures and the same tense. Add nothing beyond the fixes listed.
 Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
 
 
@@ -82,7 +83,9 @@ def _trim(client, title: str, reasons: list[str] | None = None) -> tuple[str | N
     from faramir.titles.check import MAX_CHARS
     fixes = "\n".join(f"- Fix: {r.split(': ', 1)[-1]}" for r in (reasons or []) if not r.startswith("too_long"))
     try:
-        resp = client.messages.create(model=MODEL, max_tokens=200, system=TRIM_PROMPT.format(n=MAX_CHARS - 3),
+        n = MAX_CHARS - 3
+        resp = client.messages.create(model=MODEL, max_tokens=200,
+                                      system=TRIM_PROMPT.format(n=n, length=len(title), cut=max(0, len(title) - n)),
                                       messages=[{"role": "user", "content": title + (f"\n{fixes}" if fixes else "")}])
         text = "".join(getattr(b, "text", "") for b in resp.content)
         usage = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}
@@ -112,13 +115,18 @@ def write(brief, client, other_titles: list[str]) -> Titled:
             if cut != o["title"] and check(cut, brief, other_titles).ok:
                 o["original_title"], o["title"] = o["title"], cut
                 c = check(cut, brief, other_titles)
-        if not c.ok and all(x.startswith(FIXABLE) for x in c.reasons) and trims < MAX_TRIMS:
+        for attempt in range(2):   # a second try only when the first repair is still too long
+            if c.ok or not all(x.startswith(FIXABLE) for x in c.reasons) or trims >= MAX_TRIMS:
+                break
+            if attempt and not any(x.startswith("too_long") for x in c.reasons):
+                break
             trims += 1
             short, u = _trim(client, str(o["title"]), c.reasons)
             for k in usage:
                 usage[k] += u.get(k, 0)
-            if short:
-                o["original_title"], o["title"] = o["title"], short
+            if short and short != o["title"]:
+                o.setdefault("original_title", o["title"])
+                o["title"] = short
                 c = check(short, brief, other_titles)
         o["check"] = {"ok": c.ok, "reasons": c.reasons, "warnings": c.warnings}
         if c.ok:
