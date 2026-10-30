@@ -1,0 +1,77 @@
+{
+ "description": "Synthetic offline day for dry-run testing. All titles and figures are invented except the comparison corpus (data/corpus.v2.json).",
+ "run_date": "2026-10-22",
+ "env": {
+  "FARAMIR_SHEET_ID": "offline-sheet",
+  "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/OFFLINE/FIXTURE/ONLY",
+  "SLACK_BOT_TOKEN": "offline-placeholder",
+  "SLACK_CHANNEL_ID": "COFFLINE",
+  "TMDB_API_KEY": "offline-placeholder"
+ },
+ "sheets": "sheets.json",
+ "http": [
+  {
+   "method": "GET",
+   "prefix": "https://www.the-numbers.com/box-office-chart/daily/",
+   "file": "tn_daily.html"
+  },
+  {
+   "method": "GET",
+   "prefix": "https://www.boxofficemojo.com/title/",
+   "file": "bom_title.html"
+  },
+  {
+   "method": "GET",
+   "prefix": "https://api.themoviedb.org/3/search/movie",
+   "json": {
+    "results": []
+   }
+  },
+  {
+   "method": "GET",
+   "prefix": "https://api.themoviedb.org/3/movie/5001",
+   "file": "tmdb_movie_5001.json"
+  },
+  {
+   "method": "GET",
+   "prefix": "https://slack.com/api/reactions.get",
+   "json": {
+    "ok": true,
+    "message": {
+     "reactions": [
+      {
+       "name": "+1",
+       "count": 1
+      }
+     ]
+    }
+   }
+  },
+  {
+   "method": "GET",
+   "prefix": "https://slack.com/api/conversations.replies",
+   "json": {
+    "ok": true,
+    "messages": [
+     {
+      "ts": "1700000001.000100",
+      "text": "parent"
+     },
+     {
+      "ts": "1700000002.0",
+      "text": "good one"
+     }
+    ]
+   }
+  },
+  {
+   "method": "GET",
+   "prefix": "https://slack.com/api/conversations.history",
+   "json": {
+    "ok": true,
+    "messages": [],
+    "has_more": false
+   }
+  }
+ ]
+}

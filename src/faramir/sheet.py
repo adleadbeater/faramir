@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 
 import gspread
 
+from faramir.runtime import authorize
+
 logger = logging.getLogger(__name__)
 
 STATE_HEADERS = [
@@ -27,7 +29,12 @@ STATE_HEADERS = [
     "notes",
     "dom_stale_days",
     "ww_stale_days",
+    # Increment 9: active-film identity (appended; a 17-column legacy tab is upgraded on write)
+    "tn_slug",
+    "identity_confidence",
+    "identity_method",
 ]
+LEGACY_STATE_HEADERS = STATE_HEADERS[:17]
 
 SUGGESTIONS_HEADERS = [
     "run_date",
@@ -49,6 +56,24 @@ SUGGESTIONS_HEADERS = [
     "thread_feedback",
 ]
 
+# Schema v2 (Increment 6): columns appended to the right of the v1 layout.
+# suggestion_id is immutable once written; the delivery_* columns track Slack
+# delivery. Existing columns keep their positions.
+DELIVERY_COLUMNS = [
+    "suggestion_id",
+    "delivery_state",
+    "delivery_attempts",
+    "last_attempt_at",
+    "delivery_run_id",
+    "data_date",
+    "delivery_note",
+    # Traceability (Increment 7): the candidate a pick was bound to and the
+    # verified figures it rests on. Immutable once written.
+    "candidate_id",
+    "evidence_json",
+]
+SUGGESTIONS_HEADERS_V2 = SUGGESTIONS_HEADERS + DELIVERY_COLUMNS
+
 
 def get_sheet_client() -> gspread.Client:
     """Auth from GOOGLE_SA_JSON env var."""
@@ -58,70 +83,77 @@ def get_sheet_client() -> gspread.Client:
     return gspread.service_account_from_dict(json.loads(sa_json))
 
 
-def read_state(client: gspread.Client, sheet_id: str) -> list[dict]:
-    """Read 'state' tab, return list of dicts keyed by column headers."""
+class SheetReadError(RuntimeError):
+    """A Sheets read failed. Never treated as an empty tab."""
+
+
+class TabMissing(SheetReadError):
+    """The requested worksheet does not exist."""
+
+
+def read_values(client: gspread.Client, sheet_id: str, tab: str) -> list[list[str]]:
+    """Raw cell values of a tab. Raises (never returns []) on any failure."""
     try:
-        sh = client.open_by_key(sheet_id)
-        ws = sh.worksheet("state")
-        return ws.get_all_records()
+        ws = client.open_by_key(sheet_id).worksheet(tab)
+    except gspread.WorksheetNotFound as exc:
+        raise TabMissing(tab) from exc
     except Exception as exc:
-        logger.error("read_state failed: %s", exc)
-        return []
-
-
-def write_state(client: gspread.Client, sheet_id: str, rows: list[dict]) -> None:
-    """Write full state tab (clear + rewrite). Preserves header row."""
-    sh = client.open_by_key(sheet_id)
-    ws = sh.worksheet("state")
-    ws.clear()
-    # Write headers then data
-    data = [STATE_HEADERS]
-    for row in rows:
-        data.append([str(row.get(h, "")) for h in STATE_HEADERS])
-    ws.update("A1", data)
-    logger.info("write_state: wrote %d rows", len(rows))
-
-
-def read_suggestions(client: gspread.Client, sheet_id: str) -> list[dict]:
-    """Read 'suggestions' tab."""
+        raise SheetReadError(f"{tab}: {type(exc).__name__}: {exc}") from exc
     try:
-        sh = client.open_by_key(sheet_id)
-        ws = sh.worksheet("suggestions")
-        return ws.get_all_records()
+        return ws.get_all_values()
     except Exception as exc:
-        logger.error("read_suggestions failed: %s", exc)
-        return []
+        raise SheetReadError(f"{tab}: {type(exc).__name__}: {exc}") from exc
 
 
-def append_suggestions(client: gspread.Client, sheet_id: str, rows: list[dict]) -> None:
-    """Append rows to suggestions tab."""
-    if not rows:
-        return
+def write_values(client: gspread.Client, sheet_id: str, tab: str, values: list[list[str]], op: str) -> bool:
+    """Overwrite a tab in place — never clear() — then trim leftover rows.
+
+    Guarded: returns False without touching Sheets in dry-run; raises
+    WriteBlocked when the run is halted or disabled.
+    """
+    if not authorize("sheets", op, {"tab": tab, "rows": len(values), "values": values}):
+        return False
+    ws = client.open_by_key(sheet_id).worksheet(tab)
+    previous = len(ws.get_all_values())
+    ws.update(values=values, range_name="A1")
+    if previous > len(values):
+        ws.batch_clear([f"A{len(values) + 1}:ZZ{previous}"])
+    logger.info("write_values: %s %d rows (%s)", tab, len(values), op)
+    return True
+
+
+def create_tab(client: gspread.Client, sheet_id: str, title: str, values: list[list[str]]) -> bool:
+    """Create a worksheet with initial values (state-integrity initialization only). Guarded."""
+    if not authorize("sheets", "create_tab", {"tab": title, "rows": len(values), "values": values}):
+        return False
     sh = client.open_by_key(sheet_id)
-    ws = sh.worksheet("suggestions")
-
-    # Ensure headers exist
-    existing = ws.row_values(1)
-    if not existing:
-        ws.append_row(SUGGESTIONS_HEADERS)
-
-    for row in rows:
-        ws.append_row([str(row.get(h, "")) for h in SUGGESTIONS_HEADERS])
-    logger.info("append_suggestions: appended %d rows", len(rows))
+    ws = sh.add_worksheet(title=title, rows=max(100, len(values) + 10), cols=max(26, max((len(r) for r in values), default=1)))
+    ws.update(values=values, range_name="A1")
+    logger.info("create_tab: %s with %d rows", title, len(values))
+    return True
 
 
-def write_suggestions(client: gspread.Client, sheet_id: str, rows: list[dict]) -> None:
-    """Overwrite the full suggestions tab (used when updating rows with feedback)."""
-    if not rows:
-        return
-    sh = client.open_by_key(sheet_id)
-    ws = sh.worksheet("suggestions")
-    ws.clear()
-    data = [SUGGESTIONS_HEADERS]
-    for row in rows:
-        data.append([str(row.get(h, "")) for h in SUGGESTIONS_HEADERS])
-    ws.update("A1", data)
-    logger.info("write_suggestions: wrote %d rows", len(rows))
+def append_values(client: gspread.Client, sheet_id: str, tab: str, values: list[list[str]], op: str) -> bool:
+    """Append rows in ONE API call. Guarded. Not exactly-once: callers must
+    reconcile by stable id after any error (see faramir.suggestions)."""
+    if not authorize("sheets", op, {"tab": tab, "rows": len(values), "values": values}):
+        return False
+    ws = client.open_by_key(sheet_id).worksheet(tab)
+    ws.append_rows(values, value_input_option="RAW", insert_data_option="INSERT_ROWS")
+    logger.info("append_values: %s +%d rows (%s)", tab, len(values), op)
+    return True
+
+
+def update_cells(client: gspread.Client, sheet_id: str, tab: str, updates: list[dict], op: str) -> bool:
+    """Write specific A1 ranges only ({"range": "M5:P5", "values": [[...]]}). Guarded."""
+    if not updates:
+        return True
+    if not authorize("sheets", op, {"tab": tab, "updates": updates}):
+        return False
+    ws = client.open_by_key(sheet_id).worksheet(tab)
+    ws.batch_update(updates, value_input_option="RAW")
+    logger.info("update_cells: %s %d range(s) (%s)", tab, len(updates), op)
+    return True
 
 
 # ── Claude usage tracking ──────────────────────────────────────────────────────
@@ -157,15 +189,10 @@ def buffer_usage(
     })
 
 
-def _ensure_usage_tab(sh: gspread.Spreadsheet, tab_name: str) -> gspread.Worksheet:
-    """Return the Usage worksheet, creating it with a header row if needed."""
-    try:
-        ws = sh.worksheet(tab_name)
-    except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(tab_name, rows=1000, cols=len(USAGE_HEADERS))
-        ws.append_row(USAGE_HEADERS)
-        logger.info("Created %s tab", tab_name)
-    return ws
+def _usage_tab(sh: gspread.Spreadsheet, tab_name: str) -> gspread.Worksheet:
+    """Return the Usage worksheet. It is created only by scripts/migrate_sheets.py; an ordinary
+    run never creates tabs (a missing tab raises, and flushing fails open)."""
+    return sh.worksheet(tab_name)
 
 
 def flush_usage_to_sheet(client: gspread.Client, sheet_id: str) -> None:
@@ -179,9 +206,13 @@ def flush_usage_to_sheet(client: gspread.Client, sheet_id: str) -> None:
 
     if not _USAGE_LOG:
         return
+    # Outside the fail-open try: a blocked write must surface, not be swallowed.
+    if not authorize("sheets", "flush_usage", {"tab": USAGE_TAB_NAME, "rows": list(_USAGE_LOG)}):
+        _USAGE_LOG.clear()
+        return
     try:
         sh = client.open_by_key(sheet_id)
-        ws = _ensure_usage_tab(sh, USAGE_TAB_NAME)
+        ws = _usage_tab(sh, USAGE_TAB_NAME)
         rows = [
             [
                 r["timestamp"], r["call_label"], r["input_tokens"], r["output_tokens"],
@@ -198,6 +229,8 @@ def flush_usage_to_sheet(client: gspread.Client, sheet_id: str) -> None:
 
 def append_corpus_meta(client: gspread.Client, sheet_id: str, row: dict) -> None:
     """Append one row to corpus_meta tab."""
+    if not authorize("sheets", "append_corpus_meta", {"tab": "corpus_meta", "row": row}):
+        return
     sh = client.open_by_key(sheet_id)
     try:
         ws = sh.worksheet("corpus_meta")

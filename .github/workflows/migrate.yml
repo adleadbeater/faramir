@@ -12,7 +12,7 @@ on:
         options: [plan, dry-run-apply, apply]
         default: plan
       confirm_sheet:
-        description: "For apply: the exact id of the sheet being migrated (the copy's id in the rehearsal)"
+        description: "For apply: the sheet being migrated: 'production', or the copy's exact id in a rehearsal"
         required: false
         default: ""
       copy_sheet_id:
@@ -53,7 +53,7 @@ jobs:
 
       - name: Apply (dry run or real)
         if: ${{ inputs.mode != 'plan' }}
-        run: python scripts/migrate_sheets.py --apply --confirm-sheet "${{ inputs.confirm_sheet }}" ${{ inputs.mode == 'dry-run-apply' && '--dry-run' || '' }}
+        run: python scripts/migrate_sheets.py --apply --confirm-sheet "${{ (inputs.confirm_sheet == 'production' && inputs.copy_sheet_id == '') && secrets.FARAMIR_SHEET_ID || inputs.confirm_sheet }}" ${{ inputs.mode == 'dry-run-apply' && '--dry-run' || '' }}
         env:
           # The write guard needs this for a real apply; it applies to this step only. The
           # repository variable stays false, so no scheduled run can start meanwhile.

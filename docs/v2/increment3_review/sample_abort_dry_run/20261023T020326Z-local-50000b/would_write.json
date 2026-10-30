@@ -1,0 +1,10 @@
+[
+  {
+    "category": "alert",
+    "op": "webhook_post",
+    "detail": {
+      "blocks": 1
+    },
+    "outcome": "recorded"
+  }
+]

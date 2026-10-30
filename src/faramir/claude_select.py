@@ -2,11 +2,15 @@
 
 import json
 import logging
+from dataclasses import dataclass, field
 from datetime import date
 
 import anthropic
+import pydantic
 
+from faramir import config
 from faramir.config import SELECTION_MODEL, SELECTION_MAX_TOKENS
+from faramir.schemas import PickSet, output_format
 from faramir.sheet import buffer_usage
 
 logger = logging.getLogger(__name__)
@@ -19,7 +23,7 @@ each active film has just passed (within last 3-4 days) or is about to pass (wit
 
 Your job is to pick the right number of comparisons (see picks_target, picks_min,
 picks_max in the payload) that will become MovieWeb articles. For each pick, write:
-  - A headline (declarative, news-style, max 75 chars)
+  - A headline (declarative, news-style, max 85 characters)
   - An angle (2-3 sentences on why this matters editorially)
 
 ## Selection rules
@@ -92,20 +96,17 @@ picks_max in the payload) that will become MovieWeb articles. For each pick, wri
   - Lead with the number: "$500M and Climbing: [Film] Nears a Major Milestone"
   - Lead with the franchise/talent angle: "[Director]'s Latest Just Outdid Their
     Own [Prior Film]"
-  - Lead with a superlative/rank: "[Film] Is Now the 4th-Biggest Horror Movie Ever"
   - Lead with the contrast for giant-killer stories (see below)
   - Frame as an ongoing story rather than a single crossing: "[Film]'s Box Office
     Run Keeps Getting Bigger"
   Treat "X beats/passes/surpasses Y" as one tool among several, not the default.
-- Max 90 characters.
-- Specific numbers when they're round or meaningful — "$500M", "$1 Billion", a
-  rank ("4th-Biggest Horror Ever").
+- Max 85 characters.
+- Specific numbers when they're round or meaningful — "$500M", "$1 Billion".
 - Name the franchise / star / director when there's a creative through-line.
 - For unexpected_giant_killer: lean into the contrast and name the iconic comp.
   "This Horror Film Just Quietly Passed Harry Potter and the Sorcerer's Stone".
   The comp's recognizability is the hook — use it.
-- For milestones: declarative — "[Film] Crosses $1 Billion Worldwide", and a
-  reason to read ("Becoming Only the X Movie This Year to Do So").
+- For milestones: declarative — "[Film] Crosses $1 Billion Worldwide".
 - No clickbait formulations: no "You Won't Believe", no "This One Stat",
   no ellipses for tease.
 - Title case. No emoji.
@@ -117,6 +118,42 @@ happened and why it's surprising or meaningful; one sentence on what comes next
 or what it says about the film's run. No filler, no hedging, no generic "this is
 a significant achievement." If you can't say something interesting in 2 sentences,
 the pick probably isn't strong enough.
+
+## Evidence rules (enforced in code — a pick that breaks one is dropped)
+
+- angle_category must be one of the chosen candidate's angle_categories
+  ("creative_head_to_head" may stand for creative_head_to_head_director or
+  creative_head_to_head_cast).
+- Only assert facts present in the candidate: the comparison or milestone it
+  passed or is approaching, the figures in the payload, and the relationships
+  its angle_categories show (franchise, same director, same star). A null value
+  is unavailable — never cite or estimate it.
+- No rankings, records or superlatives ("No. 1", "4th-biggest", "record",
+  "biggest ever", "highest-grossing", "first", "only"): nothing in the payload
+  supports them.
+- Every dollar figure must be one of the payload's figures, or the gap to the
+  comparison/threshold, at the precision you write it ("$1.67B", "$152M").
+- Completed wording ("passes", "crosses", "tops") only for just_passed and
+  milestones already crossed; anticipatory wording ("nears", "closing in on")
+  for about_to_pass.
+- List every factual assertion in the headline and angle in "claims".
+
+## Strategy events and headline guidance
+
+- Each candidate is a strategy event classified in code (`strategy`, `rationale`). The rationale
+  is verified evidence; the angle may draw on it.
+- When a candidate has `headline_guidance`, prefer its `preferred_constructions` (ranked by
+  MovieWeb's historical box-office results) and use a listed power word only where it fits
+  naturally and truthfully. Guidance never overrides the evidence rules above.
+
+## Ranked candidates and event candidates
+
+- Candidates arrive ranked (`rank`, `score`). Prefer higher-ranked ones unless a lower one is
+  clearly the better story; `exploration: true` marks a deliberate test slot — judge it on merit.
+- A candidate with kind "event" is a weekend-chart or Discovery event. For it return kind "event",
+  axis "weekend", `angle_category` = the candidate's `strategy`, null comp and threshold fields, and
+  a claim `{"type": "event", "text": ...}` (plus `chart_position` if you state its rank). Use only
+  figures from its `event_values`, and rank wording only as its `chart_rank` states.
 
 ## Output format
 
@@ -134,13 +171,23 @@ Your entire response must be valid JSON starting with { and ending with }. No ma
       "threshold_value": null,
       "angle_category": "franchise_sibling",
       "headline": "...",
-      "angle": "..."
+      "angle": "...",
+      "claims": [
+        {"type": "passed_comp", "comp_tmdb_id": 56292, "threshold": null, "axis": "domestic",
+         "relation": null, "genre": null, "text": "passes Ghost Protocol domestically"},
+        {"type": "relation", "comp_tmdb_id": 56292, "threshold": null, "axis": null,
+         "relation": "franchise", "genre": null, "text": "the franchise's earlier entry"}
+      ]
     }
   ]
 }
 
 comp_tmdb_id and comp_title are null for milestone picks.
-threshold_value is populated for milestone picks, null otherwise.\
+threshold_value is populated for milestone picks, null otherwise.
+Claim types: passed_comp, nearing_comp, crossed_milestone, nearing_milestone,
+relation (franchise | same_director | same_star), genre_descriptor (genre named),
+and — if you make one despite the rules — rank, record, superlative,
+chart_position, first_or_only, count.\
 """
 
 
@@ -159,22 +206,6 @@ def build_payload(
         "picks_max": picks_max,
         "active_films": active_films_with_candidates,
     }
-
-
-def _validate_picks(picks: list[dict], payload: dict) -> list[dict]:
-    """Verify every pick references a real active_tmdb_id from the payload."""
-    active_ids = {f["tmdb_id"] for f in payload.get("active_films", [])}
-    required_fields = {"active_tmdb_id", "active_title", "axis", "kind", "angle_category", "headline", "angle"}
-    valid = []
-    for pick in picks:
-        if not required_fields.issubset(pick.keys()):
-            logger.warning("pick missing required fields, skipping: %s", pick)
-            continue
-        if pick["active_tmdb_id"] not in active_ids:
-            logger.warning("pick references unknown active_tmdb_id %s, skipping", pick["active_tmdb_id"])
-            continue
-        valid.append(pick)
-    return valid
 
 
 def _slim_payload(payload: dict) -> dict:
@@ -206,6 +237,18 @@ def _slim_payload(payload: dict) -> dict:
                     "is_classic": comp.get("is_classic"),
                 } if comp else None,
                 "signals": c.get("signals"),
+                # Phase 1: the classified strategy event this candidate represents.
+                "event_id": c.get("event_id"),
+                "strategy": c.get("strategy"),
+                "secondary_strategy": c.get("secondary_strategy"),
+                "rationale": c.get("rationale"),
+                "headline_guidance": c.get("headline_guidance"),
+                "rank": c.get("rank"),
+                "score": c.get("score"),
+                "exploration": c.get("exploration"),
+                "status": c.get("status"),
+                "chart_rank": c.get("chart_rank"),
+                "event_values": c.get("event_values"),
             })
         slim_film = {k: v for k, v in film.items() if k != "candidates"}
         slim_film["candidates"] = slim_candidates
@@ -214,100 +257,177 @@ def _slim_payload(payload: dict) -> dict:
     return slim
 
 
-def select_picks(payload: dict) -> list[dict]:
-    """Call Claude, parse response, validate picks, return list of pick dicts.
+@dataclass
+class SelectionResult:
+    """Outcome of the selection call. ``picks`` is empty unless status == "ok"."""
 
-    Uses prompt caching on the system prompt (cache_control: ephemeral).
-    Retries once on parse failure. Returns [] on second failure so the caller
-    can post a degraded Slack message.
-    """
-    client = anthropic.Anthropic()
-    user_message = json.dumps(_slim_payload(payload), default=str)
+    status: str  # ok | failed | skipped_token_cap
+    picks: list[dict] = field(default_factory=list)
+    reason: str = ""
+    attempts: list[dict] = field(default_factory=list)
+    input_tokens_counted: int | None = None
+    candidates_trimmed: int = 0
 
-    def _call() -> str:
-        response = client.messages.create(
-            model=SELECTION_MODEL,
-            max_tokens=4096,
-            system=[
-                {
-                    "type": "text",
-                    "text": FARAMIR_SELECTION_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_message}],
+    def summary(self) -> dict:
+        return {k: v for k, v in self.__dict__.items() if k != "picks"} | {"picks_returned": len(self.picks)}
+
+
+def _system() -> list[dict]:
+    return [{"type": "text", "text": FARAMIR_SELECTION_PROMPT, "cache_control": {"type": "ephemeral"}}]
+
+
+def _count_tokens(client, slim: dict, fmt: dict) -> tuple[int, str]:
+    """(tokens, method). Falls back to a conservative local estimate if counting fails."""
+    try:
+        res = client.messages.count_tokens(
+            model=SELECTION_MODEL, system=_system(), output_config={"format": fmt},
+            messages=[{"role": "user", "content": json.dumps(slim, default=str)}],
         )
-        logger.info(
-            "Claude response: stop_reason=%s content_blocks=%d",
-            response.stop_reason,
-            len(response.content),
-        )
+        return int(res.input_tokens), "count_tokens"
+    except Exception as exc:  # counting must never block a run; over-estimate instead
+        logger.warning("count_tokens failed (%s); using a local estimate", type(exc).__name__)
+        chars = len(FARAMIR_SELECTION_PROMPT) + len(json.dumps(slim, default=str))
+        return chars // 3 + 1, "estimate"
+
+
+def _trim(slim: dict, keep_fraction: float) -> tuple[dict, int]:
+    """Keep the highest-richness candidates (globally) so the payload shrinks to keep_fraction."""
+    cands = [(c.get("richness_score") or 0, fi, ci) for fi, f in enumerate(slim["active_films"])
+             for ci, c in enumerate(f["candidates"])]
+    keep_n = max(0, int(len(cands) * keep_fraction))
+    keep = {(fi, ci) for _, fi, ci in sorted(cands, key=lambda t: -t[0])[:keep_n]}
+    trimmed = dict(slim, active_films=[
+        dict(f, candidates=[c for ci, c in enumerate(f["candidates"]) if (fi, ci) in keep])
+        for fi, f in enumerate(slim["active_films"])])
+    return trimmed, len(cands) - keep_n
+
+
+def select(payload: dict) -> SelectionResult:
+    """Ask Claude for picks with schema-enforced output. Fails safe: any
+    refusal, truncation, timeout, API error or unparseable output yields no
+    picks (never a guess, never a stale or reused recommendation)."""
+    client = anthropic.Anthropic(timeout=config.SELECTION_TIMEOUT_S, max_retries=config.SELECTION_MAX_RETRIES)
+    fmt = output_format()
+    slim = _slim_payload(payload)
+    result = SelectionResult(status="failed")
+
+    tokens, method = _count_tokens(client, slim, fmt)
+    result.input_tokens_counted = tokens
+    cap = config.SELECTION_MAX_INPUT_TOKENS
+    if tokens > cap:
+        slim, result.candidates_trimmed = _trim(slim, max(0.0, (cap * 0.9) / tokens))
+        tokens, method = _count_tokens(client, slim, fmt)
+        result.input_tokens_counted = tokens
+        logger.warning("Selection payload trimmed by %d candidate(s) to fit %d input tokens", result.candidates_trimmed, cap)
+        if tokens > cap or not any(f["candidates"] for f in slim["active_films"]):
+            result.status, result.reason = "skipped_token_cap", f"payload {tokens} tokens > cap {cap} after trimming"
+            return result
+    user_message = json.dumps(slim, default=str)
+
+    for attempt in range(1, config.SELECTION_ATTEMPTS + 1):
+        record: dict = {"attempt": attempt}
+        result.attempts.append(record)
+        try:
+            response = client.messages.create(
+                model=SELECTION_MODEL,
+                max_tokens=SELECTION_MAX_TOKENS,
+                system=_system(),
+                messages=[{"role": "user", "content": user_message}],
+                output_config={"format": fmt},
+            )
+        except anthropic.APITimeoutError as exc:
+            record["error"] = f"timeout after SDK retries: {exc}"
+            result.reason = "api_timeout"
+            return result
+        except anthropic.APIConnectionError as exc:
+            record["error"] = f"connection error after SDK retries: {exc}"
+            result.reason = "api_connection_error"
+            return result
+        except anthropic.APIStatusError as exc:
+            record["error"] = f"HTTP {exc.status_code}: {str(exc)[:300]}"
+            result.reason = f"api_status_{exc.status_code}"
+            return result
+
         u = response.usage
-        cache_created = getattr(u, "cache_creation_input_tokens", 0)
-        cache_read = getattr(u, "cache_read_input_tokens", 0)
-        logger.info(
-            "claude_usage input=%s output=%s cache_created=%s cache_read=%s",
-            u.input_tokens,
-            u.output_tokens,
-            cache_created,
-            cache_read,
-        )
+        record.update(stop_reason=response.stop_reason, input_tokens=u.input_tokens, output_tokens=u.output_tokens)
         buffer_usage(
-            call_label="select_picks",
+            call_label=f"select_picks#{attempt}",
             input_tokens=u.input_tokens,
             output_tokens=u.output_tokens,
-            cache_created=cache_created,
-            cache_read=cache_read,
+            cache_created=getattr(u, "cache_creation_input_tokens", 0) or 0,
+            cache_read=getattr(u, "cache_read_input_tokens", 0) or 0,
             model=SELECTION_MODEL,
         )
-        if not response.content:
-            raise ValueError("Claude returned no content blocks")
-        text = response.content[0].text
-        if not text.strip():
-            raise ValueError(f"Claude returned empty text (stop_reason={response.stop_reason})")
-        return text
-
-    def _parse(text: str) -> list[dict]:
-        text = text.strip()
-
-        # Strip markdown code fences if present
-        if "```" in text:
-            import re as _re
-            m = _re.search(r"```(?:json)?\s*([\s\S]+?)```", text)
-            if m:
-                text = m.group(1).strip()
-
-        # Extract JSON by finding the outermost { ... } block.
-        # This handles prose before and/or after the JSON.
-        brace_start = text.find("{")
-        if brace_start != -1:
-            depth = 0
-            for i, ch in enumerate(text[brace_start:], start=brace_start):
-                if ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 0:
-                        text = text[brace_start:i + 1]
-                        break
-
-        data = json.loads(text)
-        if isinstance(data, dict) and "picks" in data:
-            return data["picks"]
-        if isinstance(data, list):
-            return data
-        raise ValueError(f"unexpected response shape: {type(data)}")
-
-    for attempt in range(2):
+        logger.info("Claude selection attempt %d: stop_reason=%s in=%s out=%s",
+                    attempt, response.stop_reason, u.input_tokens, u.output_tokens)
+        if response.stop_reason == "refusal":
+            details = getattr(response, "stop_details", None)
+            record["error"] = f"refusal ({getattr(details, 'category', None)})"
+            result.reason = "refusal"
+            return result
+        if response.stop_reason == "max_tokens":
+            record["error"] = f"truncated at max_tokens={SELECTION_MAX_TOKENS}"
+            result.reason = "truncated"
+            return result
+        text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "")
         try:
-            raw = _call()
-            logger.info("Claude raw response (first 1000 chars): %s", raw[:1000])
-            picks = _parse(raw)
-            picks = _validate_picks(picks, payload)
-            logger.info("select_picks attempt %d: %d valid picks", attempt + 1, len(picks))
-            return picks
-        except Exception as exc:
-            logger.warning("select_picks attempt %d failed: %s", attempt + 1, exc)
+            parsed = PickSet.model_validate_json(text)
+        except pydantic.ValidationError as exc:
+            record["error"] = f"schema validation failed: {exc.error_count()} error(s)"
+            result.reason = "malformed_output"
+            continue  # one more attempt; output that fails the schema is never used
+        result.status, result.reason = "ok", ""
+        result.picks = [p.model_dump() for p in parsed.picks]
+        return result
+    return result
 
-    logger.error("select_picks: both attempts failed, returning empty list")
-    return []
+
+def select_picks(payload: dict) -> list[dict]:
+    """Back-compatible wrapper: picks on success, [] on any failure."""
+    return select(payload).picks
+
+
+HEADLINE_REWRITE_PROMPT = """\
+You shorten MovieWeb headlines. Rewrite the given headline to at most {max_chars} characters.
+Keep exactly the same facts, the same named films and the same tense ("passes" stays completed,
+"nears" stays anticipatory). Do not add figures, rankings, records or superlatives. Title case,
+no emoji, no clickbait. Return JSON only: {{"headline": "..."}}"""
+
+
+def shorten_headline(pick: dict, max_chars: int) -> tuple[str | None, dict]:
+    """One structured call to shorten an over-length headline. (headline|None, record).
+
+    The result is re-validated by the caller; it is never truncated here.
+    """
+    from faramir.schemas import Headline, headline_format
+
+    record: dict = {"call": "shorten_headline", "original_length": len(pick.get("headline") or "")}
+    client = anthropic.Anthropic(timeout=config.SELECTION_TIMEOUT_S, max_retries=config.SELECTION_MAX_RETRIES)
+    try:
+        response = client.messages.create(
+            model=SELECTION_MODEL,
+            max_tokens=256,
+            system=HEADLINE_REWRITE_PROMPT.format(max_chars=max_chars),
+            messages=[{"role": "user", "content": json.dumps(
+                {"headline": pick.get("headline"), "angle": pick.get("angle"), "max_chars": max_chars})}],
+            output_config={"format": headline_format()},
+        )
+    except anthropic.APIError as exc:
+        record["error"] = f"{type(exc).__name__}"
+        return None, record
+    u = response.usage
+    buffer_usage(call_label="shorten_headline", input_tokens=u.input_tokens, output_tokens=u.output_tokens,
+                 cache_created=getattr(u, "cache_creation_input_tokens", 0) or 0,
+                 cache_read=getattr(u, "cache_read_input_tokens", 0) or 0, model=SELECTION_MODEL)
+    record["stop_reason"] = response.stop_reason
+    if response.stop_reason != "end_turn":
+        record["error"] = f"stop_reason {response.stop_reason}"
+        return None, record
+    text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "")
+    try:
+        headline = Headline.model_validate_json(text).headline.strip()
+    except pydantic.ValidationError:
+        record["error"] = "schema validation failed"
+        return None, record
+    record["new_length"] = len(headline)
+    return headline, record

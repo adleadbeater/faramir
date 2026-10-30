@@ -1,0 +1,144 @@
+"""Titles written by the Aragorn method: Aragorn's own system prompt (config/titles/, copied from the
+aragorn agent with its source hash) plus Faramir's box-office section built from the MovieWeb Title
+Crafting Rules. One Claude call per story, same model and settings as Aragorn. Every option is fact
+checked (titles.check); the best passing option is the title, the next passing one the alternative.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+from dataclasses import dataclass, field
+
+from faramir.titles.check import check
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+CONFIG = os.path.join(ROOT, "config", "titles")
+MODEL = "claude-sonnet-4-6"          # Aragorn's model (aragorn.config.yaml)
+MAX_TOKENS = 3072
+
+
+def system_prompt() -> str:
+    aragorn = open(os.path.join(CONFIG, "aragorn_system_prompt.md"), encoding="utf-8").read()
+    addendum = open(os.path.join(CONFIG, "box_office_addendum.md"), encoding="utf-8").read()
+    return aragorn.rstrip() + "\n\n" + addendum
+
+
+def aragorn_prompt_drift(aragorn_repo_prompt: str | None) -> str | None:
+    """If Aragorn's live prompt file differs from Faramir's copy, say so (a reminder to re-copy it)."""
+    if not aragorn_repo_prompt or not os.path.exists(aragorn_repo_prompt):
+        return None
+    sources = json.load(open(os.path.join(CONFIG, "SOURCES.json")))
+    live = hashlib.sha256(open(aragorn_repo_prompt, "rb").read()).hexdigest()
+    return None if live == sources["aragorn_system_prompt.md"]["sha256"] else "Aragorn's prompt has changed since Faramir copied it"
+
+
+@dataclass
+class Titled:
+    title: str | None
+    alternative: str | None
+    options: list[dict] = field(default_factory=list)     # every option with its check result
+    verdict: str = "ok"                                    # ok | kill | none_passed | error
+    note: str = ""
+    usage: dict = field(default_factory=dict)
+
+
+def _parse(text: str) -> list[dict]:
+    t = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
+    start, end = t.find("["), t.rfind("]")
+    return json.loads(t[start:end + 1]) if start >= 0 else []
+
+
+MAX_TRIMS = 4         # repair calls per title (a too-long option gets a second try)
+TRIM_PROMPT = """You repair MovieWeb News titles: at most {n} characters ({length} now: cut at least {cut}), plus any fix
+listed after the title. Follow the MovieWeb Title Crafting Rules trimming order: cut the untested word first, the redundant
+fact second, the extra modifier third. Each film must keep its identifying lead (its star's name, franchise, studio or
+gross: "Javier Bardem's Crime Thriller" keeps "Javier Bardem's"), but a stacked extra descriptor may go ("R-Rated",
+"Comic Book", a second genre word). Never cut "Officially" or "Box Office". Keep the same named films and people, the
+same figures and the same tense. Add nothing beyond the fixes listed.
+Single clause, no dashes. Return JSON only: {{"title": "..."}}"""
+
+
+FIXABLE = ("too_long", "genre_phrase", "box_office_missing", "verb_weak", "descriptor_unsupported",
+           "comparison_bare_title", "comparison_too_masked", "payload_vague")
+# Deterministic cuts, in the Title Crafting Rules' trimming order (untested words, redundant facts, then
+# modifiers). Never touches "Officially", "Action Thriller" or a masked film's genre.
+CUTS = [(r"\bIs Closing In On\b", "Closes In On"), (r"\bOpening Weekend\b", "Debut"), (r"\bWith an? ", "With "),
+        (r"\b(?:Psychological|Gritty|New|Raunchy|Long-Awaited|Disturbing) (?=(?:[A-Z][\w-]* )?(?:Thriller|Comedy|Drama|Epic|Movie|Film)\b)", ""),
+        (r" at the Worldwide Box Office\b", " at the Global Box Office"), (r"\bthe Weekend Box Office\b", "the Box Office")]
+
+
+def shorten(title: str, limit: int) -> str:
+    for pattern, repl in CUTS:
+        if len(title) <= limit:
+            break
+        title = re.sub(pattern, repl, title, count=1)
+    return title
+
+
+def _trim(client, title: str, reasons: list[str] | None = None) -> tuple[str | None, dict]:
+    """One repair call: shorten, and fix the house-rule problems the check named."""
+    from faramir.titles.check import MAX_CHARS
+    fixes = "\n".join(f"- Fix: {r.split(': ', 1)[-1]}" for r in (reasons or []) if not r.startswith("too_long"))
+    try:
+        n = MAX_CHARS - 3
+        resp = client.messages.create(model=MODEL, max_tokens=200,
+                                      system=TRIM_PROMPT.format(n=n, length=len(title), cut=max(0, len(title) - n)),
+                                      messages=[{"role": "user", "content": title + (f"\n{fixes}" if fixes else "")}])
+        text = "".join(getattr(b, "text", "") for b in resp.content)
+        usage = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}
+        return json.loads(text[text.find("{"): text.rfind("}") + 1]).get("title"), usage
+    except Exception:  # noqa: BLE001
+        return None, {}
+
+
+def write(brief, client, other_titles: list[str]) -> Titled:
+    try:
+        # Aragorn sets temperature 0.3 in its Node client; Faramir's pinned Python SDK takes the model default.
+        resp = client.messages.create(model=MODEL, max_tokens=MAX_TOKENS, system=system_prompt(), messages=[{"role": "user", "content": brief.user_message()}])
+        text = "".join(getattr(b, "text", "") for b in resp.content)
+        usage = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}
+        options = _parse(text)
+    except Exception as exc:  # noqa: BLE001 — a failed title never blocks the card
+        return Titled(None, None, verdict="error", note=str(exc)[:200])
+    if any(str(o.get("mechanism", "")).upper() == "KILL" for o in options):
+        kill = next(o for o in options if str(o.get("mechanism", "")).upper() == "KILL")
+        return Titled(None, None, options, "kill", kill.get("logic", ""), usage)
+    passing, trims = [], 0
+    for o in options:
+        c = check(str(o.get("title", "")), brief, other_titles)
+        if not c.ok and all(x.startswith("too_long") for x in c.reasons):
+            from faramir.titles.check import MAX_CHARS
+            cut = shorten(str(o["title"]), MAX_CHARS)
+            if cut != o["title"] and check(cut, brief, other_titles).ok:
+                o["original_title"], o["title"] = o["title"], cut
+                c = check(cut, brief, other_titles)
+        for attempt in range(2):   # a second try only when the first repair is still too long
+            if c.ok or not all(x.startswith(FIXABLE) for x in c.reasons) or trims >= MAX_TRIMS:
+                break
+            if attempt and not any(x.startswith("too_long") for x in c.reasons):
+                break
+            trims += 1
+            short, u = _trim(client, str(o["title"]), c.reasons)
+            for k in usage:
+                usage[k] += u.get(k, 0)
+            if short and short != o["title"]:
+                o.setdefault("original_title", o["title"])
+                o["title"] = short
+                c = check(short, brief, other_titles)
+        o["check"] = {"ok": c.ok, "reasons": c.reasons, "warnings": c.warnings}
+        if c.ok:
+            passing.append(o)
+    if not passing:
+        # Editors keep final judgment: if the only problem left is length, give the best idea and flag it.
+        long_only = [o for o in options if o.get("title") and o["check"]["reasons"]
+                     and all(x.startswith("too_long") for x in o["check"]["reasons"])]
+        if long_only:
+            best = min(long_only, key=lambda o: len(o["title"]))
+            return Titled(best["title"], None, options, "over_length",
+                          f"{len(best['title'])} characters: over the cap, editor to trim", usage)
+        return Titled(None, None, options, "none_passed", "no option passed the fact check", usage)
+    return Titled(passing[0]["title"], passing[1]["title"] if len(passing) > 1 else None, options, "ok",
+                  passing[0].get("logic", ""), usage)

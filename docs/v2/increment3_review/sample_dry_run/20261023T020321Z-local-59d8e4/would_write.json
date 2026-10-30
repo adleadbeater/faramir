@@ -1,0 +1,166 @@
+[
+  {
+    "category": "sheets",
+    "op": "write_suggestions",
+    "detail": {
+      "tab": "suggestions",
+      "rows": 1,
+      "values": [
+        [
+          "run_date",
+          "active_tmdb_id",
+          "active_title",
+          "comp_tmdb_id",
+          "comp_title",
+          "axis",
+          "kind",
+          "threshold_value",
+          "angle_category",
+          "headline",
+          "angle",
+          "richness_score",
+          "slack_ts",
+          "thumbs_up",
+          "thumbs_down",
+          "thread_replies",
+          "thread_feedback"
+        ],
+        [
+          "2026-10-21",
+          "5001",
+          "Beta Story",
+          "9",
+          "Synthetic Comp",
+          "domestic",
+          "about_to_pass",
+          "",
+          "studio_sibling",
+          "Synthetic earlier pick",
+          "Fixture row.",
+          "5",
+          "1700000001.000100",
+          "1",
+          "0",
+          "1",
+          "good one"
+        ]
+      ]
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "slack",
+    "op": "webhook_post",
+    "detail": {
+      "blocks": 3
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "slack",
+    "op": "chat.postMessage",
+    "detail": {
+      "channel": "COFFLINE",
+      "blocks": 5
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "append_suggestions",
+    "detail": {
+      "tab": "suggestions",
+      "rows": 1,
+      "values": [
+        [
+          "2026-10-22",
+          "5001",
+          "Beta Story",
+          "1924",
+          "Superman",
+          "worldwide",
+          "just_passed",
+          "300478449",
+          "same_origin",
+          "[OFFLINE FIXTURE] Beta Story vs Superman",
+          "Deterministic offline responder: first eligible candidate, no model call.",
+          "",
+          "dryrun-1",
+          "",
+          "",
+          "",
+          ""
+        ]
+      ]
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "write_state",
+    "detail": {
+      "tab": "state",
+      "rows": 1,
+      "values": [
+        [
+          "tmdb_id",
+          "imdb_id",
+          "canonical_title",
+          "bom_title_seen",
+          "release_date",
+          "first_seen",
+          "last_seen",
+          "status",
+          "domestic_yesterday",
+          "domestic_today",
+          "worldwide_yesterday",
+          "worldwide_today",
+          "days_in_release",
+          "tmdb_id_override",
+          "notes",
+          "dom_stale_days",
+          "ww_stale_days"
+        ],
+        [
+          "5001",
+          "tt5001001",
+          "Beta Story",
+          "Beta Story",
+          "2026-09-18",
+          "2026-09-20",
+          "2026-10-22",
+          "active",
+          "140000000",
+          "152000000",
+          "300000000",
+          "322000000",
+          "34",
+          "",
+          "",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "flush_usage",
+    "detail": {
+      "tab": "Usage",
+      "rows": [
+        {
+          "timestamp": "2026-10-23T02:03:21.844485+00:00",
+          "call_label": "select_picks",
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_created": 0,
+          "cache_read": 0,
+          "model": "claude-sonnet-4-6"
+        }
+      ]
+    },
+    "outcome": "recorded"
+  }
+]

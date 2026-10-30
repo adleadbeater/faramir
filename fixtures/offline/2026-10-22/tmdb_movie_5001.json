@@ -1,0 +1,32 @@
+{
+ "imdb_id": "tt5001001",
+ "title": "Beta Story",
+ "release_date": "2026-09-18",
+ "genres": [
+  {
+   "name": "Action"
+  }
+ ],
+ "credits": {
+  "crew": [
+   {
+    "job": "Director",
+    "name": "Dana Director"
+   }
+  ],
+  "cast": [
+   {
+    "name": "Lead One"
+   }
+  ]
+ },
+ "belongs_to_collection": null,
+ "production_companies": [
+  {
+   "name": "Synthetic Studio"
+  }
+ ],
+ "origin_country": [
+  "US"
+ ]
+}

@@ -1,0 +1,364 @@
+[
+  {
+    "category": "sheets",
+    "op": "write_state_meta",
+    "detail": {
+      "tab": "state_meta",
+      "rows": 4,
+      "values": [
+        [
+          "key",
+          "generation",
+          "status",
+          "row_count",
+          "checksum",
+          "written_at",
+          "run_id",
+          "expires_at"
+        ],
+        [
+          "state",
+          "1",
+          "ok",
+          "1",
+          "b7d06bb1e4902bfaa82991984daa6c009872ea8c66f2bf12d852e2ce4e22ffd4",
+          "2026-10-21T15:00:00+00:00",
+          "fixture-init",
+          ""
+        ],
+        [
+          "lkg",
+          "1",
+          "ok",
+          "1",
+          "b7d06bb1e4902bfaa82991984daa6c009872ea8c66f2bf12d852e2ce4e22ffd4",
+          "2026-10-21T15:00:00+00:00",
+          "fixture-init",
+          ""
+        ],
+        [
+          "lock",
+          "",
+          "held",
+          "",
+          "",
+          "2026-10-23T06:54:15+00:00",
+          "20261023T065415Z-local-8c6b2a",
+          "2026-10-23T07:39:15+00:00"
+        ]
+      ]
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "update_feedback_cells",
+    "detail": {
+      "tab": "suggestions",
+      "updates": [
+        {
+          "range": "N2",
+          "values": [
+            [
+              "1"
+            ]
+          ]
+        },
+        {
+          "range": "O2",
+          "values": [
+            [
+              "0"
+            ]
+          ]
+        },
+        {
+          "range": "P2",
+          "values": [
+            [
+              "1"
+            ]
+          ]
+        },
+        {
+          "range": "Q2",
+          "values": [
+            [
+              "good one"
+            ]
+          ]
+        }
+      ]
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "append_suggestions",
+    "detail": {
+      "tab": "suggestions",
+      "rows": 1,
+      "values": [
+        [
+          "2026-10-22",
+          "5001",
+          "Beta Story",
+          "1924",
+          "Superman",
+          "worldwide",
+          "just_passed",
+          "300478449",
+          "same_origin",
+          "[OFFLINE FIXTURE] Beta Story vs Superman",
+          "Deterministic offline responder: first eligible candidate, no model call.",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "9d8c8898f25da967",
+          "planned",
+          "0",
+          "",
+          "20261023T065415Z-local-8c6b2a",
+          "2026-10-21",
+          ""
+        ]
+      ]
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "slack",
+    "op": "chat.postMessage",
+    "detail": {
+      "channel": "COFFLINE",
+      "blocks": 4,
+      "metadata": {
+        "event_type": "faramir_header",
+        "event_payload": {
+          "run_date": "2026-10-22"
+        }
+      }
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "mark_sending",
+    "detail": {
+      "tab": "suggestions",
+      "rows_from_this_dry_run": {
+        "9d8c8898f25da967": {
+          "delivery_state": "sending",
+          "delivery_attempts": "1",
+          "last_attempt_at": "2026-10-23T06:54:16+00:00",
+          "delivery_run_id": "20261023T065415Z-local-8c6b2a"
+        }
+      }
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "slack",
+    "op": "chat.postMessage",
+    "detail": {
+      "channel": "COFFLINE",
+      "blocks": 5,
+      "metadata": {
+        "event_type": "faramir_pick",
+        "event_payload": {
+          "suggestion_id": "9d8c8898f25da967",
+          "run_id": "20261023T065415Z-local-8c6b2a"
+        }
+      }
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "confirm_delivery",
+    "detail": {
+      "tab": "suggestions",
+      "rows_from_this_dry_run": {
+        "9d8c8898f25da967": {
+          "delivery_state": "posted",
+          "slack_ts": "dryrun-2",
+          "delivery_note": ""
+        }
+      }
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "write_state_meta",
+    "detail": {
+      "tab": "state_meta",
+      "rows": 4,
+      "values": [
+        [
+          "key",
+          "generation",
+          "status",
+          "row_count",
+          "checksum",
+          "written_at",
+          "run_id",
+          "expires_at"
+        ],
+        [
+          "state",
+          "2",
+          "writing",
+          "1",
+          "46a4dbb0b6447f58bb73ba297195790964dab92f5af7f3aada0e498ee3802c2d",
+          "2026-10-23T06:54:16+00:00",
+          "20261023T065415Z-local-8c6b2a",
+          ""
+        ],
+        [
+          "lkg",
+          "1",
+          "ok",
+          "1",
+          "b7d06bb1e4902bfaa82991984daa6c009872ea8c66f2bf12d852e2ce4e22ffd4",
+          "2026-10-21T15:00:00+00:00",
+          "fixture-init",
+          ""
+        ],
+        [
+          "lock",
+          "",
+          "released",
+          "",
+          "",
+          "2026-10-21T15:00:00+00:00",
+          "fixture-init",
+          ""
+        ]
+      ]
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "write_state",
+    "detail": {
+      "tab": "state",
+      "rows": 2,
+      "values": [
+        [
+          "tmdb_id",
+          "imdb_id",
+          "canonical_title",
+          "bom_title_seen",
+          "release_date",
+          "first_seen",
+          "last_seen",
+          "status",
+          "domestic_yesterday",
+          "domestic_today",
+          "worldwide_yesterday",
+          "worldwide_today",
+          "days_in_release",
+          "tmdb_id_override",
+          "notes",
+          "dom_stale_days",
+          "ww_stale_days"
+        ],
+        [
+          "5001",
+          "tt5001001",
+          "Beta Story",
+          "Beta Story",
+          "2026-09-18",
+          "2026-09-20",
+          "2026-10-22",
+          "active",
+          "140000000",
+          "152000000",
+          "300000000",
+          "322000000",
+          "34",
+          "",
+          "",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "write_state_meta",
+    "detail": {
+      "tab": "state_meta",
+      "rows": 4,
+      "values": [
+        [
+          "key",
+          "generation",
+          "status",
+          "row_count",
+          "checksum",
+          "written_at",
+          "run_id",
+          "expires_at"
+        ],
+        [
+          "state",
+          "2",
+          "ok",
+          "1",
+          "46a4dbb0b6447f58bb73ba297195790964dab92f5af7f3aada0e498ee3802c2d",
+          "2026-10-23T06:54:16+00:00",
+          "20261023T065415Z-local-8c6b2a",
+          ""
+        ],
+        [
+          "lkg",
+          "1",
+          "ok",
+          "1",
+          "b7d06bb1e4902bfaa82991984daa6c009872ea8c66f2bf12d852e2ce4e22ffd4",
+          "2026-10-21T15:00:00+00:00",
+          "fixture-init",
+          ""
+        ],
+        [
+          "lock",
+          "",
+          "released",
+          "",
+          "",
+          "2026-10-21T15:00:00+00:00",
+          "fixture-init",
+          ""
+        ]
+      ]
+    },
+    "outcome": "recorded"
+  },
+  {
+    "category": "sheets",
+    "op": "flush_usage",
+    "detail": {
+      "tab": "Usage",
+      "rows": [
+        {
+          "timestamp": "2026-10-23T06:54:16.010871+00:00",
+          "call_label": "select_picks",
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_created": 0,
+          "cache_read": 0,
+          "model": "claude-sonnet-4-6"
+        }
+      ]
+    },
+    "outcome": "recorded"
+  }
+]

@@ -1,0 +1,39 @@
+{
+ "source_url": "https://www.the-numbers.com/box-office-chart/weekend/2026/10/16",
+ "chart_type": "weekend",
+ "reporting_date": "2026-10-16",
+ "weekend_start": "2026-10-16",
+ "weekend_end": "2026-10-18",
+ "status": "malformed",
+ "rows": [],
+ "reported_count": null,
+ "reported_total": null,
+ "parsed_count": 0,
+ "parsed_total": null,
+ "issues": [
+  {
+   "code": "unknown_column",
+   "detail": "unknown header 'Weekend Gross' at position 4",
+   "row": null
+  },
+  {
+   "code": "missing_column",
+   "detail": "required weekend column 'gross' is absent",
+   "row": null
+  }
+ ],
+ "header": [
+  "Rank",
+  "Prev",
+  "Title",
+  "Weekend Gross",
+  "Weekly Change",
+  "Theaters",
+  "Theater Average",
+  "Total Gross",
+  "Days in Release"
+ ],
+ "parser_version": "tn-chart-1",
+ "verified": false,
+ "content_hash": "ee36e58581149c03e98dea60faac7ea9efd03c77d3dbfbe65338afbb99095262"
+}

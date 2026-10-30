@@ -214,8 +214,11 @@ def main():
 
     # Write corpus.json
     corpus_path = os.path.join(os.path.dirname(__file__), "..", "data", "corpus.json")
-    with open(corpus_path, "w") as f:
-        json.dump(corpus, f, indent=2, default=str)
+    from faramir.runtime import authorize
+
+    if authorize("repo", "write_corpus_v1", {"path": "data/corpus.json", "rows": len(corpus)}):
+        with open(corpus_path, "w") as f:
+            json.dump(corpus, f, indent=2, default=str)
     logger.info("Wrote corpus to %s", corpus_path)
 
     # Append metadata to sheet
@@ -236,5 +239,107 @@ def main():
     logger.info("=== Corpus build complete ===")
 
 
+def repair_main(argv: list[str]) -> int:
+    """TMDB-only identity repair: v1 corpus list -> schema-v2 corpus file.
+
+    Makes no BOM or The Numbers requests. Exits non-zero without writing the
+    corpus if any integrity gate fails; the build report is written either way.
+    """
+    import argparse
+    from datetime import datetime, timezone
+
+    from faramir.corpus_repair import build_v2, repair_films, write_report
+    from faramir.corpus_validate import validate_corpus
+    from faramir.runtime import authorize
+    from faramir.tmdb import find_by_imdb, get_movie_details
+
+    root = os.path.join(os.path.dirname(__file__), "..")
+    parser = argparse.ArgumentParser(prog="build_corpus.py --repair-identities")
+    parser.add_argument("--repair-identities", action="store_true", required=True)
+    parser.add_argument("--input", default=os.path.join(root, "data", "corpus.json"))
+    parser.add_argument("--output", default=os.path.join(root, "data", "corpus.v2.json"))
+    parser.add_argument("--gross-as-of", required=True, help="date the input corpus grosses were scraped (YYYY-MM-DD)")
+    parser.add_argument("--report-dir", default=None)
+    parser.add_argument("--check-only", action="store_true", help="write the report but not the corpus")
+    parser.add_argument("--workers", type=int, default=8)
+    args = parser.parse_args(argv)
+
+    now = datetime.now(timezone.utc)
+    report_dir = args.report_dir or os.path.join(root, "out", f"corpus_build_{now:%Y-%m-%d}")
+
+    with open(args.input) as f:
+        films_v1 = json.load(f)
+    if not isinstance(films_v1, list):
+        logger.error("Input %s is not a v1 corpus list", args.input)
+        return 2
+    logger.info("Repairing identities for %d rows from %s", len(films_v1), args.input)
+
+    films, changes = repair_films(
+        films_v1, find_by_imdb, get_movie_details, checked_at=now.date().isoformat(), workers=args.workers
+    )
+    corpus = build_v2(films, args.gross_as_of, now.isoformat(timespec="seconds"), os.path.relpath(args.input, root))
+    violations = validate_corpus(corpus)
+
+    wrote_to = None
+    if not violations and not args.check_only and authorize(
+        "repo", "write_corpus_v2", {"path": os.path.relpath(args.output, root), "rows": len(films)}
+    ):
+        tmp = args.output + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(corpus, f, indent=2, default=str)
+        os.replace(tmp, args.output)
+        wrote_to = os.path.relpath(args.output, root)
+
+    md_path, csv_path = write_report(report_dir, corpus, changes, violations, wrote_to)
+    logger.info("Report: %s ; changes: %s", md_path, csv_path)
+    for v in violations:
+        logger.error("Integrity gate failed: %s — %s", v.code, v.detail)
+    if violations:
+        logger.error("Corpus NOT written (%d gate violation(s))", len(violations))
+        return 1
+    logger.info("Relabelled %d, unresolved %d, wrote %s",
+                sum(c["change"] == "relabelled" for c in changes),
+                sum(c["change"] == "unresolved" for c in changes),
+                wrote_to or "(check-only)")
+    return 0
+
+
+LEGACY_BUILD_REFUSAL = (
+    "Refusing to run the legacy full corpus build. It re-scrapes BOM (pending a "
+    "source-terms decision), resolves identities by title search (the bug behind "
+    "322 mislabelled rows) and writes the v1 format the v2 pipeline rejects. Use "
+    "--repair-identities, or pass --legacy-full-build to run it deliberately."
+)
+
+
+def entrypoint(argv: list[str]) -> int:
+    """CLI entry. Every repo/Sheets write goes through faramir.runtime.
+
+    Live writes require FARAMIR_CORPUS_REFRESH_ENABLED=true (fail-closed);
+    ``--dry-run`` records them under out/<run_id>/ instead.
+    """
+    from faramir import runtime
+
+    dry_run = "--dry-run" in argv
+    argv = [a for a in argv if a != "--dry-run"]
+    if "--repair-identities" not in argv and "--legacy-full-build" not in argv:
+        logger.error(LEGACY_BUILD_REFUSAL)
+        return 3
+    ctx = runtime.new_context(dry_run=dry_run, enabled_var="FARAMIR_CORPUS_REFRESH_ENABLED")
+    ok, why = ctx.may_run()
+    if not ok:
+        logger.error("Corpus build not started: %s", why)
+        return 4
+    with runtime.use(ctx):
+        if "--repair-identities" in argv:
+            rc = repair_main(argv)
+        else:
+            main()
+            rc = 0
+    ctx.write_artifacts()
+    logger.info("Run artifacts: %s", ctx.out_dir)
+    return rc
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(entrypoint(sys.argv[1:]))

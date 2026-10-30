@@ -1,13 +1,27 @@
-name: Faramir Corpus Refresh
+name: Faramir Corpus Repair
+# Manual only, fail closed. The monthly schedule is removed: the legacy full rebuild (BOM
+# scraping, title-only identity) is never run by a workflow, and the only operation offered is
+# the TMDB-only identity repair (P0-1a), pending the source-permission decision (PR-5).
 on:
-  schedule:
-    - cron: '0 9 1 * *'    # 1st of month, 4am ET
   workflow_dispatch:
+    inputs:
+      gross_as_of:
+        description: "Date the input corpus grosses were scraped (YYYY-MM-DD)"
+        required: true
+      dry_run:
+        description: "Dry run: build and validate, record the commit, push nothing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: faramir-production
+  cancel-in-progress: false
 
 jobs:
-  refresh:
+  repair:
+    if: ${{ vars.FARAMIR_CORPUS_REFRESH_ENABLED == 'true' || inputs.dry_run }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -17,18 +31,38 @@ jobs:
         with:
           python-version: '3.11'
 
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
 
-      - run: python scripts/build_corpus.py
+      - name: Tests — must pass before any corpus is built or committed
+        run: python -m pytest -q
+
+      - name: TMDB identity repair (no BOM or The Numbers requests)
+        run: python scripts/build_corpus.py --repair-identities --gross-as-of "${{ inputs.gross_as_of }}" ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
+          FARAMIR_CORPUS_REFRESH_ENABLED: ${{ vars.FARAMIR_CORPUS_REFRESH_ENABLED }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
-          FARAMIR_SHEET_ID: ${{ secrets.FARAMIR_SHEET_ID }}
 
-      - name: Commit refreshed corpus
+      - name: Independent validation of the new corpus
+        if: ${{ !inputs.dry_run }}
+        run: python scripts/verify_corpus_v2.py
+
+      - name: Tests again, against the new corpus — must pass before the commit
+        if: ${{ !inputs.dry_run }}
+        run: python -m pytest -q
+
+      - name: Commit the repaired corpus
+        if: ${{ !inputs.dry_run && vars.FARAMIR_CORPUS_REFRESH_ENABLED == 'true' }}
         run: |
           git config user.name "faramir-bot"
           git config user.email "faramir-bot@users.noreply.github.com"
-          git add data/corpus.json
-          git diff --staged --quiet || git commit -m "corpus refresh $(date -I) [skip ci]"
+          git add data/corpus.v2.json
+          git diff --staged --quiet || git commit -m "corpus identity repair $(date -I) [skip ci]"
           git push
+
+      - name: Keep the build report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-repair-${{ github.run_id }}
+          path: out/
+          if-no-files-found: ignore

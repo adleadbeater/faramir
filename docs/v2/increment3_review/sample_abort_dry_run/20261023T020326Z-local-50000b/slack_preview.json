@@ -1,0 +1,16 @@
+[
+  {
+    "kind": "webhook:alert",
+    "channel": null,
+    "sent": false,
+    "blocks": [
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": ":warning: *Faramir 2026-10-22: comparison data failed integrity — no picks today.*\n• legacy_format: corpus is a v1 list (legacy full build output); the v2 pipeline requires a schema-v2 file from build_corpus.py --repair-identities"
+        }
+      }
+    ]
+  }
+]

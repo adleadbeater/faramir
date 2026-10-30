@@ -35,3 +35,8 @@ SELECTION_MODEL = "claude-sonnet-4-6"
 SELECTION_MAX_TOKENS = 4096
 ASYMMETRY_THRESHOLD = 0.25
 USAGE_TAB_NAME = "Usage"
+# Claude selection: reliability and cost controls (Increment 7)
+SELECTION_TIMEOUT_S = 120          # per HTTP request
+SELECTION_MAX_RETRIES = 2          # SDK retries for 408/409/429/5xx/connection errors
+SELECTION_ATTEMPTS = 2             # Faramir-level: a second attempt only for malformed output
+SELECTION_MAX_INPUT_TOKENS = 60_000  # [CAL] payload ceiling; lowest-richness candidates trimmed first
