@@ -4,10 +4,11 @@ name: Faramir Daily
 # run a dry run (every write recorded, none performed) while production is disabled.
 on:
   schedule:
-    # 15:00 UTC = 11:00 EDT (second Sunday of March to first Sunday of November) and 10:00 EST
-    # (rest of the year). GitHub cron is UTC-only. A year-round 10:00 ET needs the change proposed in
-    # docs/v2/phase0_remediation/README.md (not applied: the schedule changes only with approval).
-    - cron: '0 15 * * *'
+    # Every 15 minutes, 14:07–20:52 UTC (10am–4:52pm EDT, 9am–3:52pm EST). Each trigger checks The
+    # Numbers' daily chart; the run happens once, as soon as the chart is ready (learned film by film,
+    # faramir/chart_watch.py, never later than 3pm ET), and later triggers that day exit at once.
+    # Off-the-hour minutes: GitHub delays top-of-hour schedules most (the v1 15:00 job started 3–5h late).
+    - cron: '7,22,37,52 14-20 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -22,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write   # commits the chart-watch learning (public chart timings only) to the faramir-state branch
 
 jobs:
   run:
@@ -43,11 +44,24 @@ jobs:
       - name: Tests (no credentials, network blocked) — must pass before the run
         run: python -m pytest -q
 
+      - name: Chart-watch state (when each film reports to The Numbers; public data only)
+        run: |
+          mkdir -p state
+          if git fetch -q origin faramir-state 2>/dev/null; then git show FETCH_HEAD:chart_watch.json > state/chart_watch.json; else echo '{"days": {}}' > state/chart_watch.json; fi
+
       - name: Daily run
-        run: python scripts/run_daily.py ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+        # Exit 75 = the chart isn't ready yet: not a failure, the next trigger tries again.
+        run: |
+          set +e
+          python scripts/run_daily.py --require-chart ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+          code=$?
+          if [ "$code" -eq 75 ]; then echo "Chart not ready; the next trigger tries again."; exit 0; fi
+          exit $code
         env:
           FARAMIR_ENABLED: ${{ vars.FARAMIR_ENABLED }}       # the code checks the same variable
+          FARAMIR_PICK_ENGINE: ${{ vars.FARAMIR_PICK_ENGINE || 'cards' }}   # rollback: claude_select
           FARAMIR_COLLECT_HISTORY: 'false'                   # weekend history: off (PR-16)
+          FARAMIR_CHART_WATCH: state/chart_watch.json
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -57,6 +71,18 @@ jobs:
           FARAMIR_SHEET_ID: ${{ secrets.FARAMIR_SHEET_ID }}
           CEREBRO_MW_SHEET_ID: ${{ secrets.CEREBRO_MW_SHEET_ID }}
           GITHUB_WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Save chart-watch state
+        if: always() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        run: |
+          git config user.name "faramir-bot"
+          git config user.email "faramir-bot@users.noreply.github.com"
+          if git fetch -q origin faramir-state 2>/dev/null; then git worktree add -q -B faramir-state "$RUNNER_TEMP/fs" FETCH_HEAD; else git worktree add -q --orphan -b faramir-state "$RUNNER_TEMP/fs"; fi
+          cp state/chart_watch.json "$RUNNER_TEMP/fs/chart_watch.json"
+          cd "$RUNNER_TEMP/fs"
+          git add chart_watch.json
+          git diff --staged --quiet || git commit -qm "chart watch $(date -u +%FT%H:%M) [skip ci]"
+          git push -q origin faramir-state
 
       - name: Keep the run report (report.json, writes, Slack preview, state snapshot)
         if: always()

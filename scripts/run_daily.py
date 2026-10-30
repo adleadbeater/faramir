@@ -567,6 +567,11 @@ def _run(ctx, run_date=None):
         cerebro_snap = cerebro_snapshot.configured()
     except Exception as exc:  # a refused or unreadable snapshot: no snapshot signals, never a guess
         logger.warning("Cerebro snapshot not used: %s", exc)
+    if cerebro_snap is None and cerebro_sheet_id:
+        try:   # the production Cerebro sheet, allow-listed columns only (writer and pay columns never fetched)
+            cerebro_snap = cerebro_snapshot.from_sheet(gc, cerebro_sheet_id)
+        except Exception as exc:  # noqa: BLE001 — fall back to the legacy reader below
+            logger.warning("Cerebro sheet could not be read as a snapshot: %s", exc)
     cerebro_rows = []
     if cerebro_sheet_id and cerebro_snap is None:
         try:
@@ -766,7 +771,15 @@ def _run(ctx, run_date=None):
 
     picks: list[dict] = []
     selection_warning = None
-    if active_films_payload and any(f["candidates"] for f in active_films_payload):
+    engine_name = os.environ.get("FARAMIR_PICK_ENGINE", "cards")
+    runtime.note("pick_engine", engine_name)
+    if engine_name == "cards":
+        # Faramir 2.0: Faramir's own ranked stories, each titled with the Aragorn method (faramir/cards.py).
+        # The title stage fact-checks every title against the card's evidence before it is accepted.
+        picks, selection_warning = _card_picks(
+            gc, active_films_payload, picks_max, bom_date_used.isoformat(), latest_weekend, new_state, corpus,
+            cerebro_snap, corpus_load.meta.get("gross_as_of"))
+    elif active_films_payload and any(f["candidates"] for f in active_films_payload):
         payload = build_payload(today, active_films_payload, picks_target, picks_min, picks_max)
         selection = select(payload)
         runtime.note("claude_selection", selection.summary())
@@ -793,8 +806,14 @@ def _run(ctx, run_date=None):
 
     lexicon = title_lexicon(corpus, active_films_payload)
     validated_picks, validation_log = [], []
+    audit_only = engine_name == "cards"   # titles were fact-checked by the title stage; the v1 rules only log
     for pick in picks:
         result = validate_pick(pick, lexicon)
+        if audit_only:
+            validation_log.append({"candidate_id": pick.get("candidate_id"), "headline": pick.get("headline"),
+                                   "reasons": result.reasons, "accepted": True, "audit_only": True})
+            validated_picks.append(pick)
+            continue
         entry = {"candidate_id": pick.get("candidate_id"), "headline": pick.get("headline"), "reasons": result.reasons}
         if result.only_length:
             new_headline, record = shorten_headline(pick, HEADLINE_MAX)
@@ -992,6 +1011,49 @@ def _run(ctx, run_date=None):
     logger.info("=== Faramir complete: %d picks logged ===", len(picks))
 
 
+def _card_picks(gc, active_films_payload: list[dict], slots: int, data_date: str, weekend: str | None,
+                state: dict, corpus: list[dict], snap, gross_as_of: str | None) -> tuple[list[dict], str | None]:
+    """Step 11 (Faramir 2.0): ranked cards → Aragorn titles → picks bound to their candidates."""
+    from faramir import cards as cards_mod
+    from faramir import runtime
+    from faramir.binding import bind_picks
+    from faramir.sheet import buffer_usage
+    from faramir.titles import aragorn
+    from faramir.titles.credits import Credits
+
+    if not active_films_payload or not any(f["candidates"] for f in active_films_payload):
+        logger.warning("No story candidates today")
+        return [], None
+    if snap is None:
+        return [], "⚠ Cerebro data unavailable today, so no titles could be written — no picks posted."
+    import anthropic
+
+    imdb = {}
+    for r in state.values():
+        try:
+            imdb[int(r.get("tmdb_id"))] = r.get("imdb_id")
+        except (TypeError, ValueError):
+            continue
+    payload = {"active_films": active_films_payload}
+    cards, note = cards_mod.select(
+        payload, gc=gc, data_date=data_date, weekend=weekend, imdb=imdb, corpus_films=corpus, snap=snap,
+        slots=slots, client=anthropic.Anthropic(), credits=Credits(os.environ.get("FARAMIR_TMDB_CACHE")),
+        on_usage=lambda u: buffer_usage("aragorn_title", u.get("input_tokens", 0), u.get("output_tokens", 0), 0, 0,
+                                        aragorn.MODEL))
+    logger.info(note)
+    runtime.note("cards", {"note": note, "cards": [
+        {k: c.get(k) for k in ("label", "title", "alternative", "title_verdict", "title_note", "numbers")} for c in cards]})
+    chosen = [cards_mod.to_pick(c) for c in cards if cards_mod.postable(c)][:slots]
+    binding = bind_picks(chosen, active_films_payload, data_date, gross_as_of)
+    runtime.note("claude_binding", binding.summary())
+    for r in binding.rejected:
+        logger.warning("Card did not bind to its candidate (%s): %s", r["reason"], r["pick"].get("headline"))
+    return binding.accepted, None
+
+
+CHART_NOT_READY = 75   # EX_TEMPFAIL: the scheduled job tries again on its next trigger
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Live runs need FARAMIR_ENABLED=true (fail-closed);
     ``--dry-run`` records every write under out/<run_id>/ instead; and
@@ -1006,6 +1068,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fixtures", default=None, help="offline fixture directory (requires --dry-run)")
     parser.add_argument("--out-root", default=None, help="where run artifacts go (default: out/)")
     parser.add_argument("--run-date", default=None, help="YYYY-MM-DD, dry-run only")
+    parser.add_argument("--require-chart", action="store_true",
+                        help="the scheduled job: stop (exit 75) until yesterday's chart is ready, learned film by film "
+                             "(faramir/chart_watch.py), and do nothing once today's cards were delivered")
     args = parser.parse_args(argv or [])
 
     ctx = runtime.new_context(dry_run=args.dry_run, fixtures_dir=args.fixtures, out_root=args.out_root)
@@ -1020,6 +1085,26 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     run_date = date.fromisoformat(args.run_date) if args.run_date else None
 
+    watch_path = os.environ.get("FARAMIR_CHART_WATCH") or os.path.join(os.path.dirname(__file__), "..", "out",
+                                                                         "chart_watch.json")
+    if args.require_chart and not ctx.fixtures_dir:
+        from faramir import chart_watch
+
+        day = run_date or date.today()
+        done = None if ctx.dry_run else chart_watch.delivered(watch_path, day)
+        if done:
+            logger.info("Today's cards were already delivered (run %s); nothing to do", done)
+            return 0
+        ready, why = chart_watch.check(day - timedelta(days=1), watch_path)
+        if not ready:
+            logger.info("The Numbers' %s daily chart isn't ready: %s", day - timedelta(days=1), why)
+            ctx.report["not_started"] = f"chart not ready: {why}"
+            ctx.write_artifacts()
+            return CHART_NOT_READY
+        runtime_note_chart = why
+    else:
+        runtime_note_chart = None
+
     rc = 0
     with runtime.use(ctx):
         try:
@@ -1029,6 +1114,8 @@ def main(argv: list[str] | None = None) -> int:
                 with offline.activate(ctx.fixtures_dir):
                     _run(ctx, run_date or offline.run_date())
             else:
+                if runtime_note_chart:
+                    runtime.note("chart_ready", runtime_note_chart)
                 _run(ctx, run_date)
         except Exception as exc:
             rc = 1
@@ -1049,6 +1136,10 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Run artifacts: %s (writes: %s)", ctx.out_dir, ctx.counts())
     if ctx.halted_reason and rc == 0:
         rc = 3
+    if rc in (0, 3) and args.require_chart and not ctx.dry_run and not ctx.fixtures_dir:   # a halt would only repeat its alert
+        from faramir import chart_watch
+
+        chart_watch.mark_delivered(watch_path, run_date or date.today(), ctx.run_id)
     return rc
 
 

@@ -106,6 +106,10 @@ class FakeWorksheet:
             values.pop()
         return values
 
+    def col_values(self, col: int) -> list[str]:
+        self._record("col_values", col)
+        return [str(r[col - 1]) if col - 1 < len(r) else "" for r in self.rows]
+
     def get_all_records(self, **kwargs) -> list[dict]:
         self._record("get_all_records")
         if not self.rows:

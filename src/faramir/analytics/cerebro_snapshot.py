@@ -14,8 +14,9 @@ Contract (shared with aragorn/arwen ``src/services/cerebro.js``):
 * **Maturity.** Articles younger than ``min_age_days`` (default 14 [CAL]) are excluded from
   demand figures; they haven't accumulated their traffic.
 
-Faramir never commits a snapshot. The path comes from ``FARAMIR_CEREBRO_SNAPSHOT`` (e.g. the
-sanitized file aragorn/arwen maintain); tests use synthetic snapshots.
+Faramir never commits a snapshot. Locally the path comes from ``FARAMIR_CEREBRO_SNAPSHOT`` (the
+sanitized file scripts/sync-cerebro.sh writes); in production ``from_sheet`` reads the Cerebro sheet with
+the service account, fetching only allow-listed columns, so sensitive columns are never downloaded.
 """
 
 from __future__ import annotations
@@ -42,6 +43,11 @@ ALIASES = {
     "ArticleTitle": "title", "PubDate": "pub_date", "PubType": "pub_type", "BrandName": "brand",
     "segmentName": "segment", "ContentType": "content_type", "PageType": "page_type", "PrimaryTag": "pri_tag",
     "PrimaryCategory": "pri_cat",
+    # Alex's daily BigQuery export (Cerebro Data/cerebro_MW.csv) and the production Cerebro sheet
+    "PubDatetime": "pub_date", "PriTag": "pri_tag", "AllTags": "tags", "NetCat": "net_cat", "PriCat": "pri_cat",
+    "ActSess": "sessions", "ActTargetSess": "target_sessions", "ActPageviews": "pageviews",
+    "ActDiscoverClicks": "discover_clicks", "ActDiscoverImpressions": "discover_impressions",
+    "ActSeachClicks": "search_clicks", "pub_datetime": "pub_date", "act_sess": "sessions",
 }
 SENSITIVE = re.compile(r"writer|editor|author|byline|cost|pay(ment)?|rate|fee|salary|budget|invoice|wage|earning|email",
                        re.I)
@@ -118,42 +124,65 @@ class Snapshot:
                 and a.brand.strip().upper() == brand and a.team() == team and a.age_days(self.as_of) >= min_age_days]
 
 
+def _mapping(header: list[str]) -> tuple[dict[int, str], list[str], list[str]]:
+    mapping, ignored, sensitive = {}, [], []
+    for i, h in enumerate(header):
+        name = ALIASES.get(h.strip(), h.strip() if h.strip() in CANONICAL else None)
+        if name and name not in mapping.values():
+            mapping[i] = name
+        elif not name and SENSITIVE.search(h):
+            sensitive.append(h)
+        elif not name:
+            ignored.append(h)
+    return mapping, ignored, sensitive
+
+
+def _build(mapping: dict[int, str], rows, source: str, as_of: date | None, ignored: list[str]) -> Snapshot:
+    missing = {"title", "pub_date", "pub_type", "content_type", "page_type", "sessions"} - set(mapping.values())
+    if missing:
+        raise ValueError(f"{source}: snapshot lacks required columns {sorted(missing)}")
+    articles, dropped = [], 0
+    for raw in rows:
+        r = {mapping[i]: v for i, v in enumerate(raw) if i in mapping}
+        pub, sessions = _date(r.get("pub_date")), _num(r.get("sessions"))
+        if pub is None or sessions is None:
+            dropped += 1
+            continue
+        articles.append(Article(
+            title=r.get("title", ""), url=r.get("url", ""), pub_date=pub, pub_type=r.get("pub_type", ""),
+            brand=r.get("brand", "MW") or "MW", segment=r.get("segment", ""), pri_cat=r.get("pri_cat", ""),
+            pri_tag=r.get("pri_tag", ""), tags=[t.strip() for t in re.split(r"[|;,]", r.get("tags", "")) if t.strip()],
+            content_type=r.get("content_type", ""), page_type=r.get("page_type", ""), sessions=sessions,
+            discover_impressions=_num(r.get("discover_impressions")), discover_clicks=_num(r.get("discover_clicks")),
+            search_clicks=_num(r.get("search_clicks"))))
+    basis = "explicit" if as_of else "latest_pub_date"
+    as_of = as_of or max((a.pub_date.date() for a in articles), default=date.today())
+    return Snapshot(articles, as_of, basis, source, dropped, ignored)
+
+
 def load(path: str, as_of: date | None = None) -> Snapshot:
     with open(path, encoding="utf-8", newline="") as f:
         reader = csv.reader(f)
-        header = next(reader)
-        mapping, ignored, sensitive = {}, [], []
-        for i, h in enumerate(header):
-            name = ALIASES.get(h.strip(), h.strip() if h.strip() in CANONICAL else None)
-            if name:
-                mapping[i] = name
-            elif SENSITIVE.search(h):
-                sensitive.append(h)
-            else:
-                ignored.append(h)
+        mapping, ignored, sensitive = _mapping(next(reader))
         if sensitive:
             raise SensitiveColumns(f"{path}: refusing a snapshot with sensitive columns {sensitive} — "
                                    "use the sanitized export (allow-list only)")
-        missing = {"title", "pub_date", "pub_type", "content_type", "page_type", "sessions"} - set(mapping.values())
-        if missing:
-            raise ValueError(f"{path}: snapshot lacks required columns {sorted(missing)}")
-        articles, dropped = [], 0
-        for raw in reader:
-            r = {mapping[i]: v for i, v in enumerate(raw) if i in mapping}
-            pub, sessions = _date(r.get("pub_date")), _num(r.get("sessions"))
-            if pub is None or sessions is None:
-                dropped += 1
-                continue
-            articles.append(Article(
-                title=r.get("title", ""), url=r.get("url", ""), pub_date=pub, pub_type=r.get("pub_type", ""),
-                brand=r.get("brand", "MW") or "MW", segment=r.get("segment", ""), pri_cat=r.get("pri_cat", ""),
-                pri_tag=r.get("pri_tag", ""), tags=[t.strip() for t in re.split(r"[|;,]", r.get("tags", "")) if t.strip()],
-                content_type=r.get("content_type", ""), page_type=r.get("page_type", ""), sessions=sessions,
-                discover_impressions=_num(r.get("discover_impressions")), discover_clicks=_num(r.get("discover_clicks")),
-                search_clicks=_num(r.get("search_clicks"))))
-    basis = "explicit" if as_of else "latest_pub_date"
-    as_of = as_of or max((a.pub_date.date() for a in articles), default=date.today())
-    return Snapshot(articles, as_of, basis, path, dropped, ignored)
+        return _build(mapping, reader, path, as_of, ignored)
+
+
+SHEET_TAB = "MovieWeb Article Analysis"
+
+
+def from_sheet(gc, sheet_id: str, tab: str = SHEET_TAB, as_of: date | None = None) -> Snapshot:
+    """The production Cerebro sheet, read column by column: only allow-listed columns are fetched, so
+    writer, editor and pay columns never leave the sheet (they are skipped, not refused)."""
+    ws = gc.open_by_key(sheet_id).worksheet(tab)
+    mapping, ignored, _ = _mapping(ws.row_values(1))
+    cols = {i: ws.col_values(i + 1)[1:] for i in mapping}
+    n = max((len(c) for c in cols.values()), default=0)
+    width = max(mapping, default=-1) + 1
+    rows = ([cols[i][k] if i in cols and k < len(cols[i]) else "" for i in range(width)] for k in range(n))
+    return _build(mapping, rows, f"sheet:{tab}", as_of, ignored)
 
 
 def configured(as_of: date | None = None) -> Snapshot | None:

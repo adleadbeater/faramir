@@ -108,3 +108,49 @@ def decide(store: dict, day: date, minute: int, present: list[str], day_before_r
     if minute >= deadline:
         return True, f"partial: {len(present)} films; still missing {names}"
     return False, f"partial: {len(present)} films; waiting for {names} until {hhmm(deadline)}"
+
+
+def films_on_chart(day: date, get=None) -> list[tuple[str, int]]:
+    """The films The Numbers' daily chart for ``day`` lists so far, as (title, gross); [] if not posted."""
+    from faramir.tn_chart import daily_url, parse_chart
+    from faramir.weekend_collect import USER_AGENT
+    if get is None:
+        import requests
+        get = requests.get
+    try:
+        resp = get(daily_url(day), headers={"User-Agent": USER_AGENT}, timeout=30)
+        if not resp.ok:
+            return []
+        return [(r.title_reported, r.gross or 0) for r in parse_chart(resp.text, daily_url(day), "daily", day).rows]
+    except Exception:  # noqa: BLE001 — treat as not posted; the job retries
+        return []
+
+
+def check(day: date, path: str, now: datetime | None = None, fetch=films_on_chart) -> tuple[bool, str]:
+    """Is ``day``'s chart ready? Records the check when ``day`` is yesterday (a live check), so the job
+    learns every day; a rerun of a past day learns nothing and treats the chart as long posted."""
+    films = fetch(day)
+    now = now or datetime.now(ET)
+    minute = now_minutes(now)
+    store = load(path)
+    live = day == now.astimezone(ET).date() - timedelta(days=1)
+    if live and films:
+        record(store, day, minute, films)
+        save(store, path)
+    if live:
+        before = store["days"].get((day - timedelta(days=1)).isoformat(), {}).get("first_seen")
+        before_rows = len(before) if before else len(fetch(day - timedelta(days=1)))
+    else:
+        minute, before_rows = HARD_CUTOFF, len(fetch(day - timedelta(days=1)))
+    return decide(store, day, minute, [t for t, _ in films], before_rows)
+
+
+def delivered(path: str, run_date: date) -> str | None:
+    """The run id that already delivered ``run_date``'s cards, if any."""
+    return load(path).get("delivered", {}).get(run_date.isoformat())
+
+
+def mark_delivered(path: str, run_date: date, run_id: str) -> None:
+    store = load(path)
+    store.setdefault("delivered", {})[run_date.isoformat()] = run_id
+    save(store, path)

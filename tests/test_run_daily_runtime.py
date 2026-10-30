@@ -150,7 +150,9 @@ def test_run_date_override_only_in_dry_run(env):
 # ── fixture-only offline execution, no credentials, no network ──────────
 
 def _clean_env():
-    return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/tmp")}
+    # the offline fixture day replays Claude-selection responses, so it runs the v1 pick engine
+    return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/tmp"),
+            "FARAMIR_PICK_ENGINE": "claude_select"}
 
 
 def test_offline_fixture_run_needs_no_credentials_or_network(tmp_path):

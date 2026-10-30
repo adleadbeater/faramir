@@ -82,3 +82,13 @@ def test_no_history_collection_or_new_scraping(name):
 def test_lock_lease_exceeds_the_daily_timeout():
     minutes = int(re.search(r"timeout-minutes:\s*(\d+)", code("daily")).group(1))
     assert LOCK_TTL.total_seconds() >= 3 * minutes * 60
+
+
+def test_daily_polls_for_the_chart_and_keeps_only_public_state():
+    c = code("daily")
+    assert "cron: '7,22,37,52 14-20 * * *'" in c                     # off-the-hour, every 15 minutes
+    assert "--require-chart" in c and '"$code" -eq 75' in c          # not ready = success, try next trigger
+    assert "FARAMIR_PICK_ENGINE: ${{ vars.FARAMIR_PICK_ENGINE || 'cards' }}" in c
+    assert "FARAMIR_CHART_WATCH: state/chart_watch.json" in c
+    # the public state branch carries chart timings only: never the ledger, Cerebro or Power Words
+    assert "git add chart_watch.json" in c and "FARAMIR_LEDGER_DIR" not in c and "cerebro_MW" not in c

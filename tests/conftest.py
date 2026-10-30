@@ -34,6 +34,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "allow_network: test may open real network connections")
     config.addinivalue_line("markers", "no_run_context: run without the default permissive test run context")
     config.addinivalue_line("markers", "local_capture: needs uncommitted captured source pages")
+    config.addinivalue_line("markers", "cards_engine: run with the production cards engine (no FARAMIR_PICK_ENGINE pin)")
     config.addinivalue_line(
         "markers",
         "baseline: pins current (pre-v2) behavior; a later increment may change it deliberately",
@@ -82,3 +83,11 @@ def _block_network(request, monkeypatch):
     monkeypatch.setattr(socket.socket, "connect_ex", _refuse)
     monkeypatch.setattr(socket, "create_connection", _refuse)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _v1_pick_engine(request, monkeypatch):
+    """Production defaults to the Faramir 2.0 cards engine (FARAMIR_PICK_ENGINE=cards). The end-to-end
+    tests written for the Claude-selection path pin it; tests marked ``cards_engine`` use the default."""
+    if "cards_engine" not in request.keywords:
+        monkeypatch.setenv("FARAMIR_PICK_ENGINE", "claude_select")

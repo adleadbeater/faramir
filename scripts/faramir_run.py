@@ -34,9 +34,8 @@ import requests
 sys.path.insert(0, os.path.dirname(__file__))
 import local_store  # noqa: E402
 
-from faramir import chart_watch, history  # noqa: E402
-from faramir.strategies.common import money  # noqa: E402
-from faramir.tn_chart import daily_url, weekend_url  # noqa: E402
+from faramir import cards as cards_mod, chart_watch, history  # noqa: E402
+from faramir.tn_chart import daily_url  # noqa: E402
 from faramir.weekend_collect import IdentityCache, collect_weekend  # noqa: E402
 from tests.fakes.fake_anthropic import FakeAnthropic  # noqa: E402
 from tests.fakes.fake_http import FakeHTTP  # noqa: E402
@@ -48,10 +47,6 @@ REAL_HOSTS = {"www.the-numbers.com", "www.boxofficemojo.com", "api.themoviedb.or
 # Cerebro snapshot and Power Words export: Faramir's own copies in the local store (scheduled jobs can't
 # read Google Drive folders on macOS). Refresh by copying a newer sanitized cerebro_MW.csv there.
 DATA_DIR = local_store.STORE_DIR
-LABEL = {"overtake": "Overtake", "chase": "Chase", "countdown": "Countdown", "takeover": "Takeover", "hold": "Hold",
-         "streak": "Streak", "legs": "Legs", "exit": "Exit", "dark_horse": "Dark Horse", "discovery": "Discovery",
-         "star_record": "Star Record", "global_split": "Global Split", "studio_battle": "Studio Battle",
-         "premium_run": "Premium Run"}
 _REAL_GET, _REAL_POST = requests.get, requests.post
 
 
@@ -86,7 +81,9 @@ def _run_daily(gc, run_date: date, out_root: str, claude: bool, cold_start: bool
                "SLACK_CHANNEL_ID": "CLOCAL", "FARAMIR_COLLECT_HISTORY": "true",
                "FARAMIR_CORPUS_PATH": os.path.join(ROOT, "data", "corpus.v2.json"),
                "FARAMIR_LEDGER_DIR": os.path.join(local_store.STORE_DIR, "ledger"),
-               "FARAMIR_COLD_START": "true" if cold_start else "false"}
+               "FARAMIR_COLD_START": "true" if cold_start else "false",
+               # capture the ranked payload; cards and titles are then built by faramir.cards, as in production
+               "FARAMIR_PICK_ENGINE": "claude_select"}
         if os.path.exists(os.path.join(DATA_DIR, "cerebro_MW.csv")):
             env["FARAMIR_CEREBRO_SNAPSHOT"] = os.path.join(DATA_DIR, "cerebro_MW.csv")
             env["FARAMIR_POWER_WORDS"] = os.path.join(DATA_DIR, "power_words.json")
@@ -125,230 +122,26 @@ def _run_daily(gc, run_date: date, out_root: str, claude: bool, cold_start: bool
     return {"code": code, "run_dir": run_dir, "payload": captured.get("payload")}
 
 
-# ── cards ───────────────────────────────────────────────────────────────
-
-def _context(rationale: str) -> str:
-    parts = [p.strip() for p in (rationale or "").split(" · ")]
-    body = [p for p in parts[1:] if not p.startswith("sources:") and not p.startswith("also ")]
-    return " · ".join(body)
-
-
-def _numbers(film: dict, c: dict) -> list[str]:
-    lines = []
-    if c["kind"] != "event":
-        lines.append(f"{film['title']}: {money(film['domestic_today'])} domestic · "
-                     f"{money(film['worldwide_today']) if film.get('worldwide_today') else 'worldwide n/a'} worldwide")
-        comp = c.get("comp")
-        if comp:
-            dom_l, ww_l = comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")
-            lines.append(f"{comp['title']} ({comp.get('release_year')}): "
-                         f"{money(dom_l) if dom_l else 'n/a'} domestic · {money(ww_l) if ww_l else 'n/a'} worldwide (lifetime)")
-        elif c.get("threshold_value"):
-            lines.append(f"Milestone: {money(c['threshold_value'])} {c['axis']}")
-        return lines
-    v = c.get("event_values") or {}
-    keys = [("weekend_gross", "weekend gross"), ("previous_weekend_gross", "previous weekend"), ("rank", "rank"),
-            ("theaters", "theaters"),
-            ("previous_leader", "previous No. 1"), ("rival", "rival"), ("rival_weekend_gross", "rival weekend gross"),
-            ("rival_theaters", "rival theaters"), ("previous_theaters", "previous theaters"), ("drop_pct", "theater drop %"),
-            ("total_gross", "total"), ("weekends", "consecutive weekends"), ("weekend_change_pct", "weekend change %"),
-            ("theater_avg", "per-theater average")]
-    shown = []
-    for k, label in keys:
-        if v.get(k) is not None:
-            val = v[k]
-            if k in ("weekend_gross", "previous_weekend_gross", "rival_weekend_gross", "total_gross"):
-                val = money(val)
-            elif k == "theater_avg":
-                val = f"${val:,.0f}"
-            elif isinstance(val, (int, float)) and k in ("theaters", "rival_theaters", "previous_theaters"):
-                val = f"{val:,.0f}"
-            shown.append(f"{label} {val}")
-    lines.append(f"{film['title']}: " + " · ".join(shown))
-    return lines
-
-
-def _sources(film: dict, c: dict, data_date: str, weekend: str, imdb: dict) -> list[str]:
-    if c["kind"] == "event":
-        return [weekend_url(date.fromisoformat(weekend))]
-    out = [daily_url(date.fromisoformat(data_date))]
-    if c["axis"] == "worldwide" and imdb.get(film["tmdb_id"]):
-        out.append(f"https://www.boxofficemojo.com/title/{imdb[film['tmdb_id']]}/")
-    return out
-
-
-def build_cards(payload: dict | None, report: dict, picks: list[dict], imdb: dict, limit: int) -> list[dict]:
-    data_date = (report.get("source_dates") or {}).get("daily_chart") or report.get("run_date")
-    weekend = (report.get("weekend_strategies") or {}).get("weekend_start")
-    cards = []
-    if picks:   # --claude: the validated picks
-        for p in picks:
-            cards.append({"label": LABEL.get(p.get("strategy") or "", p.get("strategy") or ""), "title": p["headline"],
-                          "numbers": p.get("numbers", []), "context": p.get("angle", ""), "sources": p.get("sources", [])})
-        return cards
-    if not payload:
-        return cards
-    ranked = sorted(((f, c) for f in payload["active_films"] for c in f["candidates"] if c.get("rank")),
-                    key=lambda fc: fc[1]["rank"])
-    per_film: dict = {}
-    seen = set()
-    for film, c in ranked:
-        key = (film["tmdb_id"], c.get("strategy"))
-        if key in seen or per_film.get(film["tmdb_id"], 0) >= 2:
-            continue   # one card per film × strategy, at most two per film (the writer's cap)
-        seen.add(key)
-        per_film[film["tmdb_id"]] = per_film.get(film["tmdb_id"], 0) + 1
-        label = LABEL.get(c.get("strategy"), c.get("strategy"))
-        if c.get("secondary_strategy"):
-            label += f" (+{LABEL.get(c['secondary_strategy'], c['secondary_strategy'])})"
-        cards.append({"rank": c["rank"], "label": label, "title": None, "numbers": _numbers(film, c),
-                      "context": _context(c.get("rationale")), "sources": _sources(film, c, data_date, weekend, imdb),
-                      "exploration": bool(c.get("exploration")), "_film": film, "_cand": c})
-        if len(cards) >= limit:
-            break
-    return cards
-
-
-def _credits(tmdb_id, cache_path: str) -> dict:
-    """Genres, director, top cast, franchise, TMDB keywords, studios and US rating (cached; free API).
-    Keywords, studios and rating are what a title's descriptors are checked against."""
-    cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
-    key = str(tmdb_id)
-    if cache.get(key, {}).get("v") != 2 and tmdb_id and int(tmdb_id) > 0:   # v2: keywords, studios, rating, top 5 cast
-        try:
-            from faramir.tmdb import _api_key, _get_json_with_retry
-            d = _get_json_with_retry(f"/movie/{int(tmdb_id)}",
-                                     {"api_key": _api_key(), "append_to_response": "credits,keywords,release_dates"})
-            crew, cast = d.get("credits", {}).get("crew", []), d.get("credits", {}).get("cast", [])
-            us = [r.get("certification") for x in d.get("release_dates", {}).get("results", []) if x.get("iso_3166_1") == "US"
-                  for r in x.get("release_dates", []) if r.get("certification")]
-            cache[key] = {"genres": [g["name"] for g in d.get("genres", [])],
-                          "director": ", ".join(p["name"] for p in crew if p.get("job") == "Director"),
-                          "cast": [p["name"] for p in cast[:5]], "v": 2,
-                          "collection": (d.get("belongs_to_collection") or {}).get("name", ""),
-                          "keywords": [k["name"] for k in d.get("keywords", {}).get("keywords", [])],
-                          "companies": [c["name"] for c in d.get("production_companies", [])],
-                          "certification": us[0] if us else ""}
-        except Exception:  # noqa: BLE001
-            cache.setdefault(key, {})
-        json.dump(cache, open(cache_path, "w"), indent=1)
-    return cache.get(key, {})
-
-
-def _credits_by_title(title: str, year: int, cache_path: str) -> dict:
-    """Credits for a film the story names without an id (previous No. 1, rival): TMDB search, recent releases."""
-    cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
-    key = f"title:{title.lower()}"
-    if key not in cache:
-        tid = None
-        try:
-            from faramir.tmdb import _api_key, _get_json_with_retry
-            for y in (year, year - 1):
-                hits = _get_json_with_retry("/search/movie", {"api_key": _api_key(), "query": title, "primary_release_year": y})
-                hits = [h for h in hits.get("results", []) if h.get("title", "").lower() == title.lower()] or hits.get("results", [])[:1]
-                if hits:
-                    tid = hits[0]["id"]
-                    break
-        except Exception:  # noqa: BLE001
-            pass
-        cache[key] = tid
-        json.dump(cache, open(cache_path, "w"), indent=1)
-    return _credits(cache[key], cache_path) if cache[key] else {}
-
-
-def _first_reason(logic: str) -> str:
-    """The kill reasoning's first substantive sentence, for a one-line card note."""
-    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", logic or "") if x.strip()]
-    sentences = [x for x in sentences if not x.lower().startswith("all three kill")] or sentences
-    return sentences[0] if sentences else "too soft to run"
-
-
-def write_titles(cards: list[dict], gc, report: dict, out_dir: str, live: bool, only: set | None = None,
+def write_titles(cards: list[dict], report: dict, out_dir: str, live: bool, only: set | None = None,
                  previous: dict | None = None) -> str:
-    """Build each card's title brief; with live=True, write titles with the Aragorn method."""
+    """Titles with the local store's data: the synced Cerebro snapshot and Power Words copy."""
     from faramir.analytics import cerebro_snapshot as CS
-    from faramir.titles import aragorn, brief as brief_mod, data as tdata
+    from faramir.titles import data as tdata
+    from faramir.titles.credits import Credits
 
     snap_path = os.path.join(DATA_DIR, "cerebro_MW.csv")
-    if not cards or not os.path.exists(snap_path):
-        return "titles: no Cerebro snapshot available" if cards else ""
-    snap = CS.load(snap_path)
-    pool = tdata.desk_pool(snap)
-    baseline = round(sum(a.sessions or 0 for a in pool) / len(pool)) if pool else 0
-    phrases, pw_source = tdata.load_power_words(None, os.path.join(local_store.STORE_DIR, "power_words_sheet.tsv"))
-    tdata.measure_phrases(phrases, pool)
-    corpus = json.load(open(os.path.join(ROOT, "data", "corpus.v2.json")))["films"]
-    others = sorted({f["title"] for f in corpus if " " in f["title"]}
-                    | {c["_film"]["title"] for c in cards}, key=len, reverse=True)
-    data_date = (report.get("source_dates") or {}).get("daily_chart")
-    weekend = (report.get("weekend_strategies") or {}).get("weekend_start")
-    briefs_dir = os.path.join(out_dir, "title_briefs")
-    import shutil
-    shutil.rmtree(briefs_dir, ignore_errors=True)   # briefs are rebuilt every run; never leave stale ones
-    os.makedirs(briefs_dir, exist_ok=True)
+    phrases, pw_source = tdata.load_power_words(None, os.path.join(DATA_DIR, "power_words_sheet.tsv"))
     client = None
     if live:
         import anthropic
         client = anthropic.Anthropic()
-    tokens = {"input_tokens": 0, "output_tokens": 0}
-    for i, c in enumerate(cards, 1):
-        film, cand = c["_film"], c["_cand"]
-        credits = _credits(film.get("tmdb_id"), os.path.join(local_store.STORE_DIR, "tmdb_details.json"))
-        comp_id = (cand.get("comp") or {}).get("tmdb_id")
-        comp_credits = _credits(comp_id, os.path.join(local_store.STORE_DIR, "tmdb_details.json")) if comp_id else None
-        v = cand.get("event_values") or {}
-        year = int((data_date or str(date.today()))[:4])
-        other = {v[k]: _credits_by_title(v[k], year, os.path.join(local_store.STORE_DIR, "tmdb_details.json"))
-                 for k in ("previous_leader", "rival") if v.get(k)}
-        b = brief_mod.build(film, cand, credits, data_date, weekend, c["sources"], pool, baseline, phrases, comp_credits, other)
-        with open(os.path.join(briefs_dir, f"{i:02d}_{cand.get('strategy')}.txt"), "w") as f:
-            f.write(b.user_message())
-        prior = (previous or {}).get((c["label"], tuple(c["numbers"])))
-        already = bool(prior and prior.get("title_verdict") and prior.get("title_verdict") != "error")
-        if not live or (only and i not in only) or (not only and already):   # never pay twice for the same card
-            if prior and prior.get("title_verdict"):
-                c.update({k: prior[k] for k in ("title", "alternative", "title_verdict", "title_logic",
-                                                "title_options", "title_note") if k in prior})
-            else:
-                c["title_note"] = "brief ready (run with --titles to write it)"
-            continue
-        t = aragorn.write(b, client, [o for o in others if o not in b.names])
-        c.update({"title": t.title, "alternative": t.alternative, "title_verdict": t.verdict,
-                  "title_logic": t.note, "title_options": t.options})
-        if t.verdict == "kill":
-            c["title_note"] = "Pass: " + _first_reason(t.note)
-        elif t.verdict == "over_length":
-            c["title_note"] = t.note
-        elif not t.title:
-            c["title_note"] = f"no title passed the fact check ({t.verdict})"
-        for k in tokens:
-            tokens[k] += t.usage.get(k, 0)
-    cost = tokens["input_tokens"] * 3 / 1e6 + tokens["output_tokens"] * 15 / 1e6
-    return (f"titles: {pw_source}; Cerebro News+Flash baseline S/A {baseline:,} ({len(pool):,} articles, "
-            f"as of {snap.as_of}); briefs in {briefs_dir}"
-            + (f"; {tokens['input_tokens']:,} in / {tokens['output_tokens']:,} out tokens ≈ ${cost:.2f}" if live else ""))
-
-
-def render(cards: list[dict], run_date: date, report: dict) -> str:
-    data_date = (report.get("source_dates") or {}).get("daily_chart")
-    out = [f"# Faramir — {run_date:%A, %B %-d, %Y}", f"Daily chart {data_date} · weekend "
-           f"{(report.get('weekend_strategies') or {}).get('weekend_start')}", ""]
-    if not cards:
-        out.append("_No story candidates today._")
-    for i, c in enumerate(cards, 1):
-        out.append(f"**{i}. {c['label'].upper()}**" + ("  _(test slot)_" if c.get("exploration") else ""))
-        if c["title"]:
-            out.append(f"**{c['title']}**" + (f"  _({c['title_note']})_" if c.get("title_verdict") == "over_length" else ""))
-            if c.get("alternative"):
-                out.append(f"_Alternative: {c['alternative']}_")
-        else:
-            out.append(f"_Title: {c.get('title_note') or 'not written (run with --titles)'}_")
-        out += [f"- {n}" for n in c["numbers"]]
-        if c["context"]:
-            out.append(c["context"])
-        out.append("Sources: " + " · ".join(c["sources"]))
-        out.append("")
-    return "\n".join(out)
+    return cards_mod.write_titles(
+        cards, snap=CS.load(snap_path) if os.path.exists(snap_path) else None, phrases=phrases, pw_source=pw_source,
+        corpus_films=json.load(open(os.path.join(ROOT, "data", "corpus.v2.json")))["films"],
+        credits=Credits(os.path.join(DATA_DIR, "tmdb_details.json")),
+        data_date=(report.get("source_dates") or {}).get("daily_chart"),
+        weekend=(report.get("weekend_strategies") or {}).get("weekend_start"),
+        client=client, briefs_dir=os.path.join(out_dir, "title_briefs"), only=only, previous=previous)
 
 
 CHART_NOT_POSTED = 75   # EX_TEMPFAIL: the daily job retries
@@ -358,35 +151,13 @@ WATCH_FILE = os.path.join(local_store.STORE_DIR, "chart_watch.json")
 
 
 def chart_films(day: date) -> list[tuple[str, int]]:
-    """The films The Numbers' daily chart for this day lists so far, as (title, gross); [] if not posted."""
-    from faramir.tn_chart import parse_chart
-    from faramir.weekend_collect import USER_AGENT
-    try:
-        resp = _REAL_GET(daily_url(day), headers={"User-Agent": USER_AGENT}, timeout=30)
-        if not resp.ok:
-            return []
-        return [(r.title_reported, r.gross or 0) for r in parse_chart(resp.text, daily_url(day), "daily", day).rows]
-    except Exception:  # noqa: BLE001 — treat as not posted; the job retries
-        return []
+    return chart_watch.films_on_chart(day, get=_REAL_GET)
 
 
 def chart_ready(day: date, partial_ok: bool = False, now: datetime | None = None) -> tuple[bool, str]:
-    """Is this day's daily chart ready? Decided by what Faramir has learned about when each film reports
-    (faramir/chart_watch.py). Checks of yesterday's chart are recorded, so the job learns every day."""
-    films = chart_films(day)
-    minute = chart_watch.now_minutes(now)
-    store = chart_watch.load(WATCH_FILE)
-    live = day == (now or datetime.now(chart_watch.ET)).date() - timedelta(days=1)
-    if live and films:
-        chart_watch.record(store, day, minute, films)
-        chart_watch.save(store, WATCH_FILE)
-    if live:
-        before = store["days"].get((day - timedelta(days=1)).isoformat(), {}).get("first_seen")
-        before_rows = len(before) if before else len(chart_films(day - timedelta(days=1)))
-    else:   # a rerun of a past day: no watch to learn from, the chart has long been posted
-        minute, before_rows = chart_watch.HARD_CUTOFF, len(chart_films(day - timedelta(days=1)))
-    ready, why = chart_watch.decide(store, day, minute, [t for t, _ in films], before_rows)
-    return (ready or (partial_ok and bool(films))), why
+    """Is this day's daily chart ready? Learned film by film (faramir/chart_watch.py), shared with production."""
+    ready, why = chart_watch.check(day, WATCH_FILE, now, fetch=chart_films)
+    return (ready or (partial_ok and not why.startswith("not posted"))), why
 
 
 def main(argv=None) -> int:
@@ -462,16 +233,15 @@ def main(argv=None) -> int:
 
     imdb = {int(r["tmdb_id"]): r.get("imdb_id") for r in gc.book(local_store.SHEET_ID).worksheet("state").get_all_records()
             if str(r.get("tmdb_id")).isdigit()}
-    picks = []   # --claude: validated picks become cards in step 3 of the build (titles)
-    cards = build_cards(result["payload"], report, picks, imdb, args.cards)
+    cards = cards_mod.build(result["payload"], report, imdb, args.cards)
     out_dir = os.path.join(ROOT, "out", "cards", run_date.isoformat())
     os.makedirs(out_dir, exist_ok=True)
     only = {int(x) for x in args.title_cards.split(",")} if args.title_cards else None
     previous = {}
     if os.path.exists(os.path.join(out_dir, "cards.json")):   # keep titles already written today
         previous = {(c["label"], tuple(c["numbers"])): c for c in json.load(open(os.path.join(out_dir, "cards.json")))}
-    titles_report = write_titles(cards, gc, report, out_dir, live=args.titles, only=only, previous=previous)
-    md = render(cards, run_date, report)
+    titles_report = write_titles(cards, report, out_dir, live=args.titles, only=only, previous=previous)
+    md = cards_mod.render(cards, run_date, report)
     open(os.path.join(out_dir, "cards.md"), "w").write(md)
     json.dump([{k: v for k, v in c.items() if not k.startswith("_")} for c in cards],
               open(os.path.join(out_dir, "cards.json"), "w"), indent=1)

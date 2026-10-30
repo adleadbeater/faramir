@@ -281,6 +281,8 @@ def post_pick(
             "text": {"type": "mrkdwn", "text": f"_{angle}_"},
         },
     ]
+    if pick.get("alternative"):
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"Alt: {pick['alternative']}"}]})
     if pick.get("rationale"):
         # Phase 1: one evidence-only line saying why this is a story (built in code, never by the model).
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"Why: {pick['rationale']}"}]})
