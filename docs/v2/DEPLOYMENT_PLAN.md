@@ -31,13 +31,27 @@ Fix: production owns all of it; the harness becomes a thin wrapper that calls th
 
 ## Build steps (local, no approvals needed)
 
-1. Move cards, titles and TMDB credits into production modules (`faramir/cards.py`, `faramir/titles/credits.py`).
-2. Production step 11: Faramir's ranked candidates → cards → Aragorn titles → bound picks. The old Claude selection stays behind a switch (`FARAMIR_PICK_ENGINE=claude_select`) for rollback.
-3. Cerebro for titles: allow-listed reader for the production Cerebro sheet; the snapshot file still works locally.
-4. Chart readiness in `run_daily.py` (`--require-chart`), the chart-watch store path from `FARAMIR_CHART_WATCH`.
-5. Workflow: 15-minute triggers, a cheap "already delivered today" exit, state branch checkout/commit.
-6. Slack post: unchanged layout, the title as the headline, the alternative title on a context line.
-7. The harness calls the production code; one test suite covers both.
+| # | Step | Status |
+|---|---|---|
+| 1 | Cards, titles and TMDB credits in production modules (`faramir/cards.py`, `faramir/titles/credits.py`) | Done (f2115e3) |
+| 2 | Production step 11: ranked cards → Aragorn titles → bound picks; `FARAMIR_PICK_ENGINE=claude_select` for rollback | Done |
+| 3 | Cerebro for titles: allow-listed reader for the production Cerebro sheet (only allowed columns fetched) | Done; first real read happens in the dry run |
+| 4 | `run_daily.py --require-chart`: learned readiness, exit 75 until ready, once per day | Done |
+| 5 | Workflow: 15-minute off-the-hour triggers, chart timings on the `faramir-state` branch | Done; first real run in the dry run |
+| 6 | Slack post: title, alternative, numbers, label, one context line, source links | Done (0cbf663) |
+| 7 | The harness calls the production modules | Done |
+| 8 | Real-data check of production step 11 (titles stubbed, Slack and Sheet faked) | Passed: 4 slots filled, 4 picks bound, posted and logged |
+
+## Decisions this surfaced
+
+- **Weekend history is off in production** (`FARAMIR_COLLECT_HISTORY: 'false'`, PR-16, pending D1). Takeover,
+  Hold and Discovery cards need it; without it, production posts Chase, Countdown, Overtake and Dark Horse only.
+  Turning it on is a one-line workflow change once D1 is signed off.
+- **The evidence ledger is not persisted in production** (it stays in each run's artifact, as today). The plan's
+  §1 put it on a committed branch, but the repository is public and decision records can carry Cerebro-derived
+  scores. Only the chart timings (public data) are committed. Learning from outcomes needs a private home later.
+- **Run artifacts on a public repository** (D4): any signed-in GitHub user can download them. They carry card
+  text and box-office figures, not credentials. Recommend 30-day retention, or a private repository.
 
 ## Rob's steps (blocking)
 
