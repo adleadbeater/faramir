@@ -67,7 +67,10 @@ def test_migration_workflow_plan_by_default_apply_gated():
     assert "schedule:" not in c
     assert re.search(r"default: plan", c)
     assert "vars.FARAMIR_MIGRATION_ENABLED == 'true' && vars.FARAMIR_ENABLED != 'true'" in c
-    assert '--confirm-sheet "${{ inputs.confirm_sheet }}"' in c
+    # the operator names the target: 'production' (resolved to the secret, never shown) or a copy's exact id;
+    # 'production' with a copy set resolves to the literal word, which the script refuses
+    assert ('--confirm-sheet "${{ (inputs.confirm_sheet == \'production\' && inputs.copy_sheet_id == \'\') '
+            '&& secrets.FARAMIR_SHEET_ID || inputs.confirm_sheet }}"') in c
 
 
 @pytest.mark.parametrize("name", FILES)
