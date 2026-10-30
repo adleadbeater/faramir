@@ -114,6 +114,8 @@ class Snapshot:
     path: str
     dropped_rows: int = 0
     ignored_columns: list[str] = field(default_factory=list)
+    columns: list[str] = field(default_factory=list)          # canonical columns matched
+    dropped_samples: list[str] = field(default_factory=list)  # shapes of unparsed pub_date/sessions, digits masked
 
     def pool(self, team: str, min_age_days: int = DEFAULT_MIN_AGE_DAYS, brand: str = "MW") -> list[Article]:
         """The contract pool: Regular, Publish, brand, one team, matured."""
@@ -141,12 +143,14 @@ def _build(mapping: dict[int, str], rows, source: str, as_of: date | None, ignor
     missing = {"title", "pub_date", "pub_type", "content_type", "page_type", "sessions"} - set(mapping.values())
     if missing:
         raise ValueError(f"{source}: snapshot lacks required columns {sorted(missing)}")
-    articles, dropped = [], 0
+    articles, dropped, samples = [], 0, []
     for raw in rows:
         r = {mapping[i]: v for i, v in enumerate(raw) if i in mapping}
         pub, sessions = _date(r.get("pub_date")), _num(r.get("sessions"))
         if pub is None or sessions is None:
             dropped += 1
+            if len(samples) < 3:   # the shape only (digits masked), never the row's content
+                samples.append(re.sub(r"\d", "9", f"pub_date={r.get('pub_date', '')!s:.25} sessions={r.get('sessions', '')!s:.12}"))
             continue
         articles.append(Article(
             title=r.get("title", ""), url=r.get("url", ""), pub_date=pub, pub_type=r.get("pub_type", ""),
@@ -157,7 +161,7 @@ def _build(mapping: dict[int, str], rows, source: str, as_of: date | None, ignor
             search_clicks=_num(r.get("search_clicks"))))
     basis = "explicit" if as_of else "latest_pub_date"
     as_of = as_of or max((a.pub_date.date() for a in articles), default=date.today())
-    return Snapshot(articles, as_of, basis, source, dropped, ignored)
+    return Snapshot(articles, as_of, basis, source, dropped, ignored, sorted(set(mapping.values())), samples)
 
 
 def load(path: str, as_of: date | None = None) -> Snapshot:

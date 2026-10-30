@@ -83,7 +83,10 @@ def get_sheet_client() -> gspread.Client:
     sa_json = os.environ.get("GOOGLE_SA_JSON")
     if not sa_json:
         raise RuntimeError("GOOGLE_SA_JSON env var not set")
-    return gspread.service_account_from_dict(json.loads(sa_json), http_client=BackOffHTTPClient)
+    info = json.loads(sa_json)
+    from faramir import runtime   # who to share a sheet with (Power Words, Cerebro); an identifier, not a secret
+    runtime.note("service_account", info.get("client_email"))
+    return gspread.service_account_from_dict(info, http_client=BackOffHTTPClient)
 
 
 class SheetReadError(RuntimeError):

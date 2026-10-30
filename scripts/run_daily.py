@@ -592,7 +592,11 @@ def _run(ctx, run_date=None):
     if cerebro_snap is not None:
         cerebro_signals = audience_mod.signals(cerebro_snap, list(set(all_talent_names + all_collection_names)))
         runtime.note("cerebro_source", {"source": "snapshot", "as_of": cerebro_snap.as_of.isoformat(),
-                                        "as_of_basis": cerebro_snap.as_of_basis, "articles": len(cerebro_snap.articles)})
+                                        "as_of_basis": cerebro_snap.as_of_basis, "articles": len(cerebro_snap.articles),
+                                        "read_from": cerebro_snap.path if cerebro_snap.path.startswith("sheet:") else "file",
+                                        "dropped_rows": cerebro_snap.dropped_rows, "columns": cerebro_snap.columns,
+                                        "ignored_columns": len(cerebro_snap.ignored_columns),
+                                        "dropped_samples": cerebro_snap.dropped_samples})
     else:
         talent_signals = build_talent_signals(cerebro_rows, list(set(all_talent_names)))
         franchise_signals = build_franchise_signals(cerebro_rows, list(set(all_collection_names)))
