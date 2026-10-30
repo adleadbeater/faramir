@@ -4,8 +4,12 @@
 # Scheduled on Rob's Mac by launchd (scripts/launchd/com.movieweb.faramir.daily.plist) at 10am local
 # time; the same script is meant to run unchanged on the Shell Agent VM later (cron/systemd timer).
 #
-# - Waits for The Numbers to post yesterday's daily chart IN FULL (it posts early films first): up to 13 tries,
-#   30 minutes apart (until 4pm). The last try runs on whatever is posted and the notification says so.
+# - Checks The Numbers' chart for yesterday every 15 minutes (21 tries, until 3pm) and runs as soon as it is
+#   ready. Ready is learned (src/faramir/chart_watch.py): every film that reported same-day yesterday is in
+#   again, or the time those films usually report by has passed. Studios report at different times and some
+#   never report daily, so the chart is never complete on the day.
+# - After the cards are written it keeps watching the chart every 30 minutes until 6pm, so late-reporting
+#   films are learned too. Watching is one page fetch per check; it writes nothing but chart_watch.json.
 # - Runs once per day: a finished day is marked, so a second trigger (e.g. the Mac waking) does nothing.
 # - Logs to out/logs/daily-YYYY-MM-DD.log and posts a macOS notification when the cards are ready.
 # - Never posts to Slack or writes Google Sheets (faramir_run.py captures Slack; local store only).
@@ -18,8 +22,9 @@ LOG_DIR="$REPO/out/logs"
 CARDS_DIR="$REPO/out/cards/$TODAY"
 DONE="$CARDS_DIR/.done"
 LOCK="$REPO/out/.daily_run.lock"
-TRIES="${FARAMIR_DAILY_TRIES:-13}"
-WAIT="${FARAMIR_DAILY_WAIT_SECONDS:-1800}"
+TRIES="${FARAMIR_DAILY_TRIES:-21}"
+WAIT="${FARAMIR_DAILY_WAIT_SECONDS:-900}"
+WATCH_UNTIL="${FARAMIR_WATCH_UNTIL:-1800}"   # HHMM, ET
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/daily-$TODAY.log"
 
@@ -50,8 +55,8 @@ for attempt in $(seq 1 "$TRIES"); do
         cards=$(grep -c '^\*\*[0-9]' "$CARDS_DIR/cards.md" 2>/dev/null || echo 0)
         cost=$(grep -o '≈ \$[0-9.]*' "$LOG" | tail -1)
         msg="$cards story cards ready for $TODAY ${cost:+($cost)} — out/cards/$TODAY/cards.md"
-        if [ -n "$partial" ] && grep -q "PARTIAL CHART" "$LOG"; then
-            msg="$msg · The Numbers' chart was only partly posted by 4pm: films missing from it got no daily stories"
+        if grep -q "PARTIAL CHART" "$LOG"; then
+            msg="$msg · Some films hadn't reported to The Numbers by $(date '+%-I:%M%p'); they got no daily stories"
         fi
         cerebro="$REPO/out/local_store/cerebro_MW.csv"
         if [ -f "$cerebro" ] && [ -n "$(find "$cerebro" -mtime +3 2>/dev/null)" ]; then
@@ -59,6 +64,10 @@ for attempt in $(seq 1 "$TRIES"); do
         fi
         notify "$msg"
         echo "$(date '+%F %T') done: $cards cards" >>"$LOG"
+        while [ "$(date +%H%M)" -lt "$WATCH_UNTIL" ]; do
+            sleep 1800
+            "$REPO/.venv/bin/python" scripts/faramir_run.py --watch-only >>"$LOG" 2>&1
+        done
         exit 0
     elif [ "$code" -eq 75 ] && [ "$attempt" -lt "$TRIES" ]; then
         sleep "$WAIT"

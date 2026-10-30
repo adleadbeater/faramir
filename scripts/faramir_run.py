@@ -25,7 +25,7 @@ import json
 import os
 import re
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from urllib.parse import urlparse
 
 import pytest
@@ -34,7 +34,7 @@ import requests
 sys.path.insert(0, os.path.dirname(__file__))
 import local_store  # noqa: E402
 
-from faramir import history  # noqa: E402
+from faramir import chart_watch, history  # noqa: E402
 from faramir.strategies.common import money  # noqa: E402
 from faramir.tn_chart import daily_url, weekend_url  # noqa: E402
 from faramir.weekend_collect import IdentityCache, collect_weekend  # noqa: E402
@@ -354,33 +354,39 @@ def render(cards: list[dict], run_date: date, report: dict) -> str:
 CHART_NOT_POSTED = 75   # EX_TEMPFAIL: the daily job retries
 
 
-COMPLETE_SHARE = 0.75   # a chart with fewer films than this share of the day before is still being filled in
-MIN_ROWS = 10
+WATCH_FILE = os.path.join(local_store.STORE_DIR, "chart_watch.json")
 
 
-def chart_rows(day: date) -> int:
-    """How many films The Numbers' daily chart for this day lists (0 if not posted or unreachable)."""
+def chart_films(day: date) -> list[tuple[str, int]]:
+    """The films The Numbers' daily chart for this day lists so far, as (title, gross); [] if not posted."""
     from faramir.tn_chart import parse_chart
     from faramir.weekend_collect import USER_AGENT
     try:
         resp = _REAL_GET(daily_url(day), headers={"User-Agent": USER_AGENT}, timeout=30)
-        return len(parse_chart(resp.text, daily_url(day), "daily", day).rows) if resp.ok else 0
+        if not resp.ok:
+            return []
+        return [(r.title_reported, r.gross or 0) for r in parse_chart(resp.text, daily_url(day), "daily", day).rows]
     except Exception:  # noqa: BLE001 — treat as not posted; the job retries
-        return 0
+        return []
 
 
-def chart_ready(day: date, partial_ok: bool = False) -> tuple[bool, str]:
-    """Has The Numbers posted this day's daily chart, complete? It posts the early-reporting films first
-    and fills in the rest hours later (2026-10-28: 12 films at 1:52pm, 25 by 5pm); a run on the partial
-    chart drops every film that isn't on it yet. Complete = at least COMPLETE_SHARE of the day before."""
-    rows = chart_rows(day)
-    if not rows:
-        return False, "not posted yet"
-    prev = chart_rows(day - timedelta(days=1))
-    need = max(MIN_ROWS, round(COMPLETE_SHARE * prev)) if prev else MIN_ROWS
-    if rows >= need:
-        return True, f"{rows} films"
-    return partial_ok, f"partial: {rows} films so far (the day before had {prev})"
+def chart_ready(day: date, partial_ok: bool = False, now: datetime | None = None) -> tuple[bool, str]:
+    """Is this day's daily chart ready? Decided by what Faramir has learned about when each film reports
+    (faramir/chart_watch.py). Checks of yesterday's chart are recorded, so the job learns every day."""
+    films = chart_films(day)
+    minute = chart_watch.now_minutes(now)
+    store = chart_watch.load(WATCH_FILE)
+    live = day == (now or datetime.now(chart_watch.ET)).date() - timedelta(days=1)
+    if live and films:
+        chart_watch.record(store, day, minute, films)
+        chart_watch.save(store, WATCH_FILE)
+    if live:
+        before = store["days"].get((day - timedelta(days=1)).isoformat(), {}).get("first_seen")
+        before_rows = len(before) if before else len(chart_films(day - timedelta(days=1)))
+    else:   # a rerun of a past day: no watch to learn from, the chart has long been posted
+        minute, before_rows = chart_watch.HARD_CUTOFF, len(chart_films(day - timedelta(days=1)))
+    ready, why = chart_watch.decide(store, day, minute, [t for t, _ in films], before_rows)
+    return (ready or (partial_ok and bool(films))), why
 
 
 def main(argv=None) -> int:
@@ -393,19 +399,24 @@ def main(argv=None) -> int:
     ap.add_argument("--require-chart", action="store_true",
                     help="stop (exit 75) if The Numbers hasn't posted yesterday's daily chart in full yet, instead of "
                          "falling back to an older or partial chart; the daily job retries later")
+    ap.add_argument("--watch-only", action="store_true",
+                    help="record one check of yesterday's chart for chart_watch's learning, and stop")
     ap.add_argument("--partial-ok", action="store_true",
                     help="with --require-chart: accept a partly posted chart (the daily job's last try)")
     ap.add_argument("--cards", type=int, default=8, help="maximum cards to show")
     ap.add_argument("--all", action="store_true", help="review mode: show every ranked story, not just today's slots")
     args = ap.parse_args(argv)
     run_date = date.fromisoformat(args.date) if args.date else date.today()
+    if args.watch_only:
+        print(f"Chart watch: {chart_ready(run_date - timedelta(days=1))[1]}")
+        return 0
     if args.require_chart:
         ready, why = chart_ready(run_date - timedelta(days=1), args.partial_ok)
         if not ready:
             print(f"The Numbers' {run_date - timedelta(days=1)} daily chart isn't ready ({why}); try again later.")
             return CHART_NOT_POSTED
         if why.startswith("partial"):
-            print(f"PARTIAL CHART: running anyway on the last try ({why}).")
+            print(f"PARTIAL CHART: running ({why}).")
     names = ("TMDB_API_KEY", "ANTHROPIC_API_KEY") if (args.claude or args.titles) else ("TMDB_API_KEY",)
     local_store.load_env(names)
     if args.claude:
