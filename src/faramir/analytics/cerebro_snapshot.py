@@ -98,7 +98,8 @@ def _num(v) -> float | None:
 
 def _date(v) -> datetime | None:
     s = str(v or "").strip().replace("T", " ")
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%m/%d/%Y"):
+    # The production Cerebro sheet writes "10/29/2026 9:15:00" (month first, with a time; 2026-10-30)
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y"):
         try:
             return datetime.strptime(s[:19], fmt)
         except ValueError:

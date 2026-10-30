@@ -126,3 +126,15 @@ def test_sheets_client_backs_off_on_googles_quota(monkeypatch):
     monkeypatch.setenv("GOOGLE_SA_JSON", "{}")
     monkeypatch.setattr(gspread, "service_account_from_dict", lambda info, **kw: seen.update(kw) or "client")
     assert sheet.get_sheet_client() == "client" and seen["http_client"] is BackOffHTTPClient
+
+
+def test_cerebro_sheet_dates_are_month_first_with_a_time():
+    from faramir.analytics import cerebro_snapshot
+
+    gc = FakeClient()
+    gc.book("C").add_tab(cerebro_snapshot.SHEET_TAB, [
+        ["ArticleTitle", "PubDatetime", "PubType", "ContentType", "PageType", "ActSess"],
+        ["A Story", "10/29/2026 9:15:00", "Publish", "News", "Regular", "9000"],
+        ["B Story", "8/1/2026 14:05:00", "Publish", "News", "Regular", "7000"]])
+    snap = cerebro_snapshot.from_sheet(gc, "C")
+    assert snap.dropped_rows == 0 and [a.pub_date.month for a in snap.articles] == [10, 8]
