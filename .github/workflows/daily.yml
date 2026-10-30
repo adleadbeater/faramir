@@ -1,7 +1,8 @@
 name: Faramir Daily
 on:
   schedule:
-    - cron: '0 15 * * *'   # 10am ET (15:00 UTC during EDT; drifts to 10am EST in winter)
+    - cron: '37 12 * * *'   # 12:37 UTC = 7:37am EST / 8:37am EDT. Deliberately early and off the hour:
+                            # GitHub delays scheduled runs ~3-5h, so picks should land ~10:30am-1pm ET.
   workflow_dispatch:        # manual trigger button
 
 jobs:
