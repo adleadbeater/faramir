@@ -1,0 +1,89 @@
+{
+ "days": {
+  "2026-10-29": {
+   "checks": [
+    [
+     "16:43",
+     35
+    ]
+   ],
+   "first_seen": {
+    "A Talent for Murder": "16:43",
+    "Angel and the Badman": "16:43",
+    "Buddy": "16:43",
+    "California Schemin\u2019": "16:43",
+    "Clayface": "16:43",
+    "Crawlers": "16:43",
+    "Daniel and the Fiery Furnace": "16:43",
+    "Digger": "16:43",
+    "Fatherland": "16:43",
+    "Fjord": "16:43",
+    "Flywheel: Ignition of the Soul": "16:43",
+    "Forgotten Island": "16:43",
+    "Heart of the Beast": "16:43",
+    "Insidious: Out of the Further": "16:43",
+    "Klara and the Sun": "16:43",
+    "Musk": "16:43",
+    "Naza": "16:43",
+    "Once Upon a Time in Harlem": "16:43",
+    "Other Mommy": "16:43",
+    "Practical Magic 2": "16:43",
+    "Primetime": "16:43",
+    "Resident Evil": "16:43",
+    "Runner": "16:43",
+    "Sense and Sensibility": "16:43",
+    "Spider-Man: Brand New Day": "16:43",
+    "Street Fighter": "16:43",
+    "The Devils": "16:43",
+    "The Odyssey": "16:43",
+    "The Only Living Pickpocket in New York": "16:43",
+    "The Social Reckoning": "16:43",
+    "Verity": "16:43",
+    "Wildwood": "16:43",
+    "You Can See Everything": "16:43",
+    "You Can\u2019t Leave": "16:43",
+    "Your Mother, Your Mother, Your Mother": "16:43"
+   },
+   "gross": {
+    "A Talent for Murder": 32327,
+    "Angel and the Badman": 4287,
+    "Buddy": 99,
+    "California Schemin\u2019": 68,
+    "Clayface": 1901226,
+    "Crawlers": 1364,
+    "Daniel and the Fiery Furnace": 2795,
+    "Digger": 23791,
+    "Fatherland": 8423,
+    "Fjord": 31790,
+    "Flywheel: Ignition of the Soul": 672,
+    "Forgotten Island": 46770,
+    "Heart of the Beast": 213337,
+    "Insidious: Out of the Further": 518,
+    "Klara and the Sun": 50009,
+    "Musk": 7814,
+    "Naza": 20282,
+    "Once Upon a Time in Harlem": 6148,
+    "Other Mommy": 326110,
+    "Practical Magic 2": 7601,
+    "Primetime": 38748,
+    "Resident Evil": 292538,
+    "Runner": 256,
+    "Sense and Sensibility": 348780,
+    "Spider-Man: Brand New Day": 11967,
+    "Street Fighter": 571510,
+    "The Devils": 66334,
+    "The Odyssey": 33525,
+    "The Only Living Pickpocket in New York": 13289,
+    "The Social Reckoning": 19802,
+    "Verity": 250249,
+    "Wildwood": 1372102,
+    "You Can See Everything": 1979176,
+    "You Can\u2019t Leave": 683,
+    "Your Mother, Your Mother, Your Mother": 42066
+   }
+  }
+ },
+ "delivered": {
+  "2026-10-30": "20261030T204318Z-41125345538"
+ }
+}
