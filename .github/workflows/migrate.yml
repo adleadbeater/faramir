@@ -12,7 +12,11 @@ on:
         options: [plan, dry-run-apply, apply]
         default: plan
       confirm_sheet:
-        description: "For apply: the exact FARAMIR_SHEET_ID being migrated"
+        description: "For apply: the exact id of the sheet being migrated (the copy's id in the rehearsal)"
+        required: false
+        default: ""
+      copy_sheet_id:
+        description: "Rehearsal (V3): a COPY of the workbook, shared with the service account. Blank = the production sheet"
         required: false
         default: ""
 
@@ -45,7 +49,7 @@ jobs:
         run: python scripts/migrate_sheets.py
         env:
           GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
-          FARAMIR_SHEET_ID: ${{ secrets.FARAMIR_SHEET_ID }}
+          FARAMIR_SHEET_ID: ${{ inputs.copy_sheet_id || secrets.FARAMIR_SHEET_ID }}
 
       - name: Apply (dry run or real)
         if: ${{ inputs.mode != 'plan' }}
@@ -55,7 +59,7 @@ jobs:
           # repository variable stays false, so no scheduled run can start meanwhile.
           FARAMIR_ENABLED: ${{ inputs.mode == 'apply' && 'true' || 'false' }}
           GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
-          FARAMIR_SHEET_ID: ${{ secrets.FARAMIR_SHEET_ID }}
+          FARAMIR_SHEET_ID: ${{ inputs.copy_sheet_id || secrets.FARAMIR_SHEET_ID }}
 
       - name: Keep the migration report
         if: always()

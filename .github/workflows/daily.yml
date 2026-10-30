@@ -15,6 +15,10 @@ on:
         description: "Dry run: record every write, perform none (allowed while production is disabled)"
         type: boolean
         default: true
+      copy_sheet_id:
+        description: "Dry run only: read a COPY of the workbook instead (migration rehearsal). Ignored on a real run"
+        required: false
+        default: ""
 
 # One production run at a time across every Faramir workflow (state, history and delivery
 # protocols rely on it). Queued, never cancelled mid-run.
@@ -68,7 +72,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
-          FARAMIR_SHEET_ID: ${{ secrets.FARAMIR_SHEET_ID }}
+          FARAMIR_SHEET_ID: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.copy_sheet_id != '') && inputs.copy_sheet_id || secrets.FARAMIR_SHEET_ID }}
           CEREBRO_MW_SHEET_ID: ${{ secrets.CEREBRO_MW_SHEET_ID }}
           GITHUB_WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 

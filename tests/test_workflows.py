@@ -92,3 +92,12 @@ def test_daily_polls_for_the_chart_and_keeps_only_public_state():
     assert "FARAMIR_CHART_WATCH: state/chart_watch.json" in c
     # the public state branch carries chart timings only: never the ledger, Cerebro or Power Words
     assert "git add chart_watch.json" in c and "FARAMIR_LEDGER_DIR" not in c and "cerebro_MW" not in c
+
+
+def test_a_copy_of_the_sheet_is_only_ever_used_for_rehearsals():
+    daily, migrate = code("daily"), code("migrate")
+    # daily: the copy is read only on a manual dry run; a real run always uses the production secret
+    assert ("FARAMIR_SHEET_ID: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run && "
+            "inputs.copy_sheet_id != '') && inputs.copy_sheet_id || secrets.FARAMIR_SHEET_ID }}") in daily
+    # migrate: apply still needs confirm_sheet to equal the sheet actually targeted (checked by the script)
+    assert migrate.count("FARAMIR_SHEET_ID: ${{ inputs.copy_sheet_id || secrets.FARAMIR_SHEET_ID }}") == 2
