@@ -965,7 +965,7 @@ def _run(ctx, run_date=None):
         })
 
     deliveries = replay_items + new_items
-    post_hdr, header_why = should_post_header(reconciliation, slack_target is not None)
+    post_hdr, header_why = should_post_header(reconciliation, slack_target is not None, ONCE_PER_DAY)
     if post_hdr:
         if slack_target:
             post_header_message(slack_bot_token, slack_channel_id, len(deliveries), len(enriched_active), today,
@@ -1056,6 +1056,7 @@ def _card_picks(gc, active_films_payload: list[dict], slots: int, data_date: str
 
 
 CHART_NOT_READY = 75   # EX_TEMPFAIL: the scheduled job tries again on its next trigger
+ONCE_PER_DAY = False   # set by --require-chart: the scheduled job delivers at most once a day
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1093,6 +1094,9 @@ def main(argv: list[str] | None = None) -> int:
                                                                          "chart_watch.json")
     if args.require_chart and not ctx.fixtures_dir:
         from faramir import chart_watch
+
+        global ONCE_PER_DAY
+        ONCE_PER_DAY = True
 
         day = run_date or date.today()
         done = None if ctx.dry_run else chart_watch.delivered(watch_path, day)

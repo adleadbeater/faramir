@@ -51,6 +51,7 @@ def _parse(text: str) -> list[dict]:
     return json.loads(t[start:end + 1]) if start >= 0 else []
 
 
+TRIM_TOKENS = 1024    # room to reason before the JSON (200 cut it off mid-thought, 2026-10-30)
 MAX_TRIMS = 4         # repair calls per title (a too-long option gets a second try)
 TRIM_PROMPT = """You repair MovieWeb News titles: at most {n} characters ({length} now: cut at least {cut}), plus any fix
 listed after the title. Follow the MovieWeb Title Crafting Rules trimming order: cut the untested word first, the redundant
@@ -84,12 +85,14 @@ def _trim(client, title: str, reasons: list[str] | None = None) -> tuple[str | N
     fixes = "\n".join(f"- Fix: {r.split(': ', 1)[-1]}" for r in (reasons or []) if not r.startswith("too_long"))
     try:
         n = MAX_CHARS - 3
-        resp = client.messages.create(model=MODEL, max_tokens=200,
+        resp = client.messages.create(model=MODEL, max_tokens=TRIM_TOKENS,
                                       system=TRIM_PROMPT.format(n=n, length=len(title), cut=max(0, len(title) - n)),
                                       messages=[{"role": "user", "content": title + (f"\n{fixes}" if fixes else "")}])
         text = "".join(getattr(b, "text", "") for b in resp.content)
         usage = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}
-        return json.loads(text[text.find("{"): text.rfind("}") + 1]).get("title"), usage
+        # The model sometimes works the cut out in prose first; the answer is the last {"title": ...} it wrote.
+        found = re.findall(r'\{\s*"title"\s*:\s*"(?:[^"\\]|\\.)*"\s*\}', text)
+        return (json.loads(found[-1]).get("title") if found else None), usage
     except Exception:  # noqa: BLE001
         return None, {}
 

@@ -227,9 +227,13 @@ def deliver(client, sheet_id: str, slack: SlackTarget, items: list[DeliveryItem]
     return outcomes
 
 
-def should_post_header(rec: Reconciliation | None, have_bot: bool) -> tuple[bool, str]:
+def should_post_header(rec: Reconciliation | None, have_bot: bool, once_per_day: bool = False) -> tuple[bool, str]:
+    """``once_per_day``: the scheduled job runs at most once a day (chart_watch's delivered marker), so a
+    header cannot repeat even when the bot cannot read the channel's history."""
     if not have_bot:
         return True, "webhook header (no bot token: cannot check for an earlier header)"
+    if (rec is None or not rec.history_ok) and once_per_day:
+        return True, "Slack history unavailable; posted once (the scheduled job runs once a day)"
     if rec is None or not rec.history_ok:
         return False, "Slack history unavailable — header skipped to avoid a duplicate"
     if rec.header_posted_today:

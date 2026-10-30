@@ -140,7 +140,7 @@ def test_an_over_length_option_is_trimmed_then_rechecked():
     class TrimClient(FakeClient):
         def create(self, **kw):
             self.calls.append(kw)
-            if kw["max_tokens"] == 200:
+            if kw["max_tokens"] == aragorn.TRIM_TOKENS:
                 return SimpleNamespace(content=[SimpleNamespace(text='{"title": "Clayface Officially Takes No. 1 From Jason Momoa\'s Movie at the Box Office"}')],
                                        usage=SimpleNamespace(input_tokens=100, output_tokens=20))
             return super().create(**kw)
@@ -157,16 +157,27 @@ def test_a_repair_that_comes_back_unchanged_gets_a_second_try_told_how_much_to_c
     class StubbornClient(FakeClient):
         def create(self, **kw):
             self.calls.append(kw)
-            if kw["max_tokens"] == 200:
-                out = long if len([c for c in self.calls if c["max_tokens"] == 200]) == 1 else good
+            if kw["max_tokens"] == aragorn.TRIM_TOKENS:
+                out = long if len([c for c in self.calls if c["max_tokens"] == aragorn.TRIM_TOKENS]) == 1 else good
                 return SimpleNamespace(content=[SimpleNamespace(text=json.dumps({"title": out}))],
                                        usage=SimpleNamespace(input_tokens=100, output_tokens=20))
             return super().create(**kw)
     fake = StubbornClient([{"mechanism": "MILESTONE", "title": long}])
     t = aragorn.write(mk(TAKEOVER), fake, [])
     assert t.verdict == "ok" and t.title == good
-    repair = [c for c in fake.calls if c["max_tokens"] == 200][0]["system"]
+    repair = [c for c in fake.calls if c["max_tokens"] == aragorn.TRIM_TOKENS][0]["system"]
     assert f"({len(long)} now: cut at least {len(long) - 92})" in repair
+
+
+def test_a_repair_that_reasons_before_its_answer_is_read_from_the_last_json():
+    good = "Clayface Officially Takes No. 1 From Jason Momoa's Movie at the Box Office"
+
+    class Thinker(FakeClient):
+        def create(self, **kw):
+            self.calls.append(kw)
+            text = 'Cut "Classic": {"title": "too long still"} ... final:\n{"title": "' + good + '"}'
+            return SimpleNamespace(content=[SimpleNamespace(text=text)], usage=SimpleNamespace(input_tokens=1, output_tokens=1))
+    assert aragorn._trim(Thinker([]), "x" * 120)[0] == good
 
 
 def test_the_gap_to_the_comparison_is_a_verified_figure():
@@ -228,7 +239,7 @@ def test_house_rules_box_office_takeover_leader_and_never_blank():
             "Jason Momoa's Movie at the Box Office")
     class NoTrim(FakeClient):
         def create(self, **kw):
-            if kw["max_tokens"] == 200:
+            if kw["max_tokens"] == aragorn.TRIM_TOKENS:
                 raise RuntimeError("trim unavailable")
             return super().create(**kw)
     t = aragorn.write(b, NoTrim([{"mechanism": "MILESTONE", "title": long}]), [])

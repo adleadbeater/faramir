@@ -608,3 +608,12 @@ def test_slack_ts_is_written_as_raw_text(world):
     batch = [c for c in gc.writes() if c[1] == "batch_update"][-1]
     assert batch[2][0][0]["values"] == [["1792670001.000100"]]  # a string, sent with value_input_option=RAW
     assert read_table(gc, "S").by_id()[r["suggestion_id"]][0].get("slack_ts") == "1792670001.000100"
+
+
+def test_header_posts_once_from_the_scheduled_job_when_history_is_unreadable():
+    from faramir.delivery import Reconciliation, should_post_header
+
+    rec = Reconciliation(history_ok=False, history_error="missing_scope")
+    assert should_post_header(rec, True)[0] is False                      # a manual run: never risk a duplicate
+    assert should_post_header(rec, True, once_per_day=True)[0] is True    # the once-a-day scheduled job
+    assert should_post_header(None, True, once_per_day=True)[0] is True
