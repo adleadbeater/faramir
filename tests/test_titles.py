@@ -282,3 +282,13 @@ def test_a_documentary_is_not_a_biopic():
     facts = [data.film_facts({"genres": ["Documentary"], "keywords": ["biography"], "companies": ["A24"]})]
     assert data.unsupported_descriptors("A24's Elizabeth Holmes Biopic Gains at the Box Office", facts) == ["Biopic"]
     assert data.unsupported_descriptors("Biopic Gains", [data.film_facts({"genres": ["Drama"], "keywords": ["biography"]})]) == []
+
+
+def test_only_a_later_film_of_a_collection_is_a_sequel():
+    first = data.film_facts({"collection": "Airport Collection", "collection_first": True})
+    later = data.film_facts({"collection": "X-Men Collection", "collection_first": False})
+    unknown = data.film_facts({"collection": "Some Collection"})
+    assert "Sequel" not in data.supported_descriptors([first])
+    assert "Sequel" in data.supported_descriptors([later])
+    assert "Sequel" not in data.supported_descriptors([unknown])
+    assert data.unsupported_descriptors("Nears the $100 Million Airport Sequel at the Box Office", [first]) == ["Sequel"]

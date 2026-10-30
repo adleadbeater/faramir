@@ -289,7 +289,8 @@ DESCRIPTORS = [
     ("Video Game", r"video[- ]game", _kw("based on video game")),
     ("Zombie", r"zombie", _kw("zombie")),
     ("Martial Arts", r"martial[- ]arts", _kw("martial arts")),
-    ("Sequel", r"sequel", lambda f: _kw("sequel")(f) or bool(f.get("collection"))),
+    # A later film of a collection; the first film (or an unknown position) is never a sequel
+    ("Sequel", r"sequel", lambda f: _kw("sequel")(f) or (bool(f.get("collection")) and f.get("collection_first") is False)),
     ("Reboot", r"reboot", _kw("reboot")),
     ("Remake", r"remake", _kw("remake")),
     ("R-Rated", r"r-rated", lambda f: f.get("certification") == "R"),
@@ -304,7 +305,8 @@ DESCRIPTORS = [
 def film_facts(credits: dict, domestic=None, worldwide=None) -> dict:
     return {"genres": credits.get("genres") or [], "keywords": [k.lower() for k in credits.get("keywords") or []],
             "companies": credits.get("companies") or [], "certification": credits.get("certification") or "",
-            "collection": credits.get("collection") or "", "domestic": domestic, "worldwide": worldwide}
+            "collection": credits.get("collection") or "", "collection_first": credits.get("collection_first"),
+            "domestic": domestic, "worldwide": worldwide}
 
 
 def supported_descriptors(facts: list[dict]) -> list[str]:

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import os
 
-VERSION = 2   # v2: keywords, studios, rating, top 5 cast
+VERSION = 3   # v2: keywords, studios, rating, top 5 cast; v3: first film of its collection?
 
 
 class Credits:
@@ -35,11 +35,27 @@ class Credits:
                                    "collection": (d.get("belongs_to_collection") or {}).get("name", ""),
                                    "keywords": [k["name"] for k in d.get("keywords", {}).get("keywords", [])],
                                    "companies": [c["name"] for c in d.get("production_companies", [])],
-                                   "certification": us[0] if us else ""}
+                                   "certification": us[0] if us else "",
+                                   "collection_first": self._first_in_collection(d)}
             except Exception:  # noqa: BLE001 — a title is still written; descriptors just have less to stand on
                 self.cache.setdefault(key, {})
             self._save()
         return self.cache.get(key, {})
+
+    @staticmethod
+    def _first_in_collection(d: dict) -> bool | None:
+        """Is this the series' first film? Being in a collection doesn't make a film a sequel: 'Airport'
+        (1970) is the first of the Airport Collection (2026-10-30 post called it 'the Airport Sequel')."""
+        coll = d.get("belongs_to_collection") or {}
+        if not coll.get("id"):
+            return None
+        try:
+            from faramir.tmdb import _api_key, _get_json_with_retry
+            parts = _get_json_with_retry(f"/collection/{int(coll['id'])}", {"api_key": _api_key()}).get("parts", [])
+            dates = sorted(p.get("release_date") for p in parts if p.get("release_date"))
+            return bool(dates) and (d.get("release_date") or "") <= dates[0]
+        except Exception:  # noqa: BLE001 — unknown: treated as possibly the first, so never called a sequel
+            return None
 
     def by_title(self, title: str, year: int) -> dict:
         """A film the story names without an id (previous No. 1, rival): TMDB search, recent releases."""
