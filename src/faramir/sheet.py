@@ -76,11 +76,14 @@ SUGGESTIONS_HEADERS_V2 = SUGGESTIONS_HEADERS + DELIVERY_COLUMNS
 
 
 def get_sheet_client() -> gspread.Client:
-    """Auth from GOOGLE_SA_JSON env var."""
+    """Auth from GOOGLE_SA_JSON env var. Google's per-minute quota (60 reads per user) is retried with
+    backoff instead of failing the run (2026-10-30: the migration hit it mid-way)."""
+    from gspread.http_client import BackOffHTTPClient
+
     sa_json = os.environ.get("GOOGLE_SA_JSON")
     if not sa_json:
         raise RuntimeError("GOOGLE_SA_JSON env var not set")
-    return gspread.service_account_from_dict(json.loads(sa_json))
+    return gspread.service_account_from_dict(json.loads(sa_json), http_client=BackOffHTTPClient)
 
 
 class SheetReadError(RuntimeError):

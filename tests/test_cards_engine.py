@@ -114,3 +114,15 @@ def test_ready_chart_runs_once_then_the_day_is_done(env, tmp_path, monkeypatch):
     calls = len(env["gc"].calls)
     assert load_run_daily().main(["--out-root", str(env["tmp"] / "out2"), "--require-chart"]) == 0
     assert len(env["gc"].calls) == calls                  # second trigger: nothing read, nothing posted
+
+
+def test_sheets_client_backs_off_on_googles_quota(monkeypatch):
+    import gspread
+    from gspread.http_client import BackOffHTTPClient
+
+    from faramir import sheet
+
+    seen = {}
+    monkeypatch.setenv("GOOGLE_SA_JSON", "{}")
+    monkeypatch.setattr(gspread, "service_account_from_dict", lambda info, **kw: seen.update(kw) or "client")
+    assert sheet.get_sheet_client() == "client" and seen["http_client"] is BackOffHTTPClient
