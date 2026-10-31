@@ -81,6 +81,60 @@
     "You Can\u2019t Leave": 683,
     "Your Mother, Your Mother, Your Mother": 42066
    }
+  },
+  "2026-10-30": {
+   "checks": [
+    [
+     "14:28",
+     21
+    ]
+   ],
+   "first_seen": {
+    "A Talent for Murder": "14:28",
+    "Christmas at the Kringles": "14:28",
+    "Clayface": "14:28",
+    "Everest: The Other Side": "14:28",
+    "Forgotten Island": "14:28",
+    "Heart of the Beast": "14:28",
+    "Klara and the Sun": "14:28",
+    "Musk": "14:28",
+    "Once Upon a Time\u2026in Hollywood": "14:28",
+    "Other Mommy": "14:28",
+    "Paging Hezbollah": "14:28",
+    "Primetime": "14:28",
+    "Resident Evil": "14:28",
+    "Sense and Sensibility": "14:28",
+    "Sight & Sound Presents: JOSHUA Live!": "14:28",
+    "Street Fighter": "14:28",
+    "The Only Living Pickpocket in New York": "14:28",
+    "Whalefall": "14:28",
+    "Wicker": "14:28",
+    "Wildwood": "14:28",
+    "You Can See Everything": "14:28"
+   },
+   "gross": {
+    "A Talent for Murder": 25149,
+    "Christmas at the Kringles": 370000,
+    "Clayface": 3250000,
+    "Everest: The Other Side": 400000,
+    "Forgotten Island": 87000,
+    "Heart of the Beast": 460000,
+    "Klara and the Sun": 45000,
+    "Musk": 3744,
+    "Once Upon a Time\u2026in Hollywood": 115000,
+    "Other Mommy": 750000,
+    "Paging Hezbollah": 42000,
+    "Primetime": 36816,
+    "Resident Evil": 705000,
+    "Sense and Sensibility": 460000,
+    "Sight & Sound Presents: JOSHUA Live!": 264569,
+    "Street Fighter": 1050000,
+    "The Only Living Pickpocket in New York": 870000,
+    "Whalefall": 324000,
+    "Wicker": 1430000,
+    "Wildwood": 2390951,
+    "You Can See Everything": 3569030
+   }
   }
  },
  "delivered": {
