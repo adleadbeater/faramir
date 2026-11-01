@@ -139,6 +139,74 @@
     "Wildwood": 2390951,
     "You Can See Everything": 3569030
    }
+  },
+  "2026-10-31": {
+   "checks": [
+    [
+     "13:53",
+     28
+    ]
+   ],
+   "first_seen": {
+    "A Talent for Murder": "13:53",
+    "BTS World Tour \u2018Arirang\u2019 in Buenos Aires and S\u00e3o Paulo Live Viewing": "13:53",
+    "Breeder": "13:53",
+    "California Schemin\u2019": "13:53",
+    "Clayface": "13:53",
+    "Everest: The Other Side": "13:53",
+    "Fjord": "13:53",
+    "Forgotten Island": "13:53",
+    "Heart of the Beast": "13:53",
+    "Klara and the Sun": "13:53",
+    "La bola negra": "13:53",
+    "Musk": "13:53",
+    "Naza": "13:53",
+    "Once Upon a Time in Harlem": "13:53",
+    "Once Upon a Time\u2026in Hollywood": "13:53",
+    "Other Mommy": "13:53",
+    "Paging Hezbollah": "13:53",
+    "Primetime": "13:53",
+    "Resident Evil": "13:53",
+    "Sense and Sensibility": "13:53",
+    "Sight & Sound Presents: JOSHUA Live!": "13:53",
+    "Street Fighter": "13:53",
+    "The Mosquito Bowl": "13:53",
+    "The Only Living Pickpocket in New York": "13:53",
+    "Verity": "13:53",
+    "Whalefall": "13:53",
+    "Wildwood": "13:53",
+    "You Can See Everything": "13:53"
+   },
+   "gross": {
+    "A Talent for Murder": 37945,
+    "BTS World Tour \u2018Arirang\u2019 in Buenos Aires and S\u00e3o Paulo Live Viewing": 800000,
+    "Breeder": 117102,
+    "California Schemin\u2019": 18,
+    "Clayface": 4275000,
+    "Everest: The Other Side": 310000,
+    "Fjord": 135000,
+    "Forgotten Island": 110000,
+    "Heart of the Beast": 660000,
+    "Klara and the Sun": 57000,
+    "La bola negra": 120000,
+    "Musk": 7476,
+    "Naza": 17292,
+    "Once Upon a Time in Harlem": 25080,
+    "Once Upon a Time\u2026in Hollywood": 77000,
+    "Other Mommy": 1110000,
+    "Paging Hezbollah": 38000,
+    "Primetime": 44179,
+    "Resident Evil": 1155000,
+    "Sense and Sensibility": 500000,
+    "Sight & Sound Presents: JOSHUA Live!": 266503,
+    "Street Fighter": 1230000,
+    "The Mosquito Bowl": 134000,
+    "The Only Living Pickpocket in New York": 540000,
+    "Verity": 485506,
+    "Whalefall": 400000,
+    "Wildwood": 2700466,
+    "You Can See Everything": 3580272
+   }
   }
  },
  "delivered": {
