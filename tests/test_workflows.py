@@ -58,7 +58,7 @@ def test_tests_run_before_any_production_step(name):
 def test_daily_is_fail_closed_and_supports_dry_run():
     c = code("daily")
     assert "(vars.FARAMIR_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run))" in job("daily", "run")
-    assert "vars.FARAMIR_ENABLED == 'true' && github.event_name == 'schedule'" in job("daily", "wait")
+    assert "vars.FARAMIR_ENABLED == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run))" in job("daily", "wait")
     assert re.search(r"dry_run:\s*\n\s*description:.*\n\s*type: boolean\s*\n\s*default: true", c)
     assert "'--dry-run'" in c and "FARAMIR_ENABLED: ${{ vars.FARAMIR_ENABLED }}" in c
     assert "!= 'false'" not in c and "vars.FARAMIR_ENABLED != " not in c  # never "enabled unless disabled"

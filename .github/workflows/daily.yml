@@ -30,7 +30,7 @@ jobs:
   # appear; the "run" job then decides and posts. One waiting job at a time; a trigger that arrives
   # meanwhile queues (the newest replaces an older queued one).
   wait:
-    if: ${{ vars.FARAMIR_ENABLED == 'true' && github.event_name == 'schedule' }}
+    if: ${{ vars.FARAMIR_ENABLED == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 330
     concurrency:
@@ -80,7 +80,7 @@ jobs:
 
   run:
     needs: wait
-    # The waiting job is skipped for manual dispatches (a dry run never waits); a failed or cancelled wait
+    # The waiting job is skipped for a dry run (it never waits); a real manual dispatch waits like a scheduled one; a failed or cancelled wait
     # means no run until the next trigger.
     if: ${{ always() && (needs.wait.result == 'success' || needs.wait.result == 'skipped') && (vars.FARAMIR_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) }}
     # One production run at a time across every Faramir workflow (state, history and delivery
