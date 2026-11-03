@@ -297,6 +297,78 @@
     "You Can\u2019t Leave": 133,
     "Your Mother, Your Mother, Your Mother": 36279
    }
+  },
+  "2026-11-02": {
+   "changed": [
+    [
+     "16:48",
+     "eaf3259bda"
+    ]
+   ],
+   "checks": [
+    [
+     "16:48",
+     27
+    ]
+   ],
+   "first_seen": {
+    "A Talent for Murder": "16:48",
+    "Buddy": "16:48",
+    "Christmas at the Kringles": "16:48",
+    "Clayface": "16:48",
+    "Crawlers": "16:48",
+    "Digger": "16:48",
+    "Everest: The Other Side": "16:48",
+    "Forgotten Island": "16:48",
+    "Heart of the Beast": "16:48",
+    "Klara and the Sun": "16:48",
+    "Musk": "16:48",
+    "Once Upon a Time\u2026in Hollywood": "16:48",
+    "Other Mommy": "16:48",
+    "Paging Hezbollah": "16:48",
+    "Practical Magic 2": "16:48",
+    "Resident Evil": "16:48",
+    "Sense and Sensibility": "16:48",
+    "Sight & Sound Presents: JOSHUA Live!": "16:48",
+    "Street Fighter": "16:48",
+    "Tad and the Magic Lamp": "16:48",
+    "The Devils": "16:48",
+    "The Mongoose": "16:48",
+    "The Only Living Pickpocket in New York": "16:48",
+    "Verity": "16:48",
+    "Whalefall": "16:48",
+    "Wicker": "16:48",
+    "Your Mother, Your Mother, Your Mother": "16:48"
+   },
+   "gross": {
+    "A Talent for Murder": 12643,
+    "Buddy": 129,
+    "Christmas at the Kringles": 70113,
+    "Clayface": 1220178,
+    "Crawlers": 3210,
+    "Digger": 19013,
+    "Everest: The Other Side": 169367,
+    "Forgotten Island": 63270,
+    "Heart of the Beast": 176809,
+    "Klara and the Sun": 25178,
+    "Musk": 2366,
+    "Once Upon a Time\u2026in Hollywood": 86000,
+    "Other Mommy": 264325,
+    "Paging Hezbollah": 16830,
+    "Practical Magic 2": 14008,
+    "Resident Evil": 266514,
+    "Sense and Sensibility": 215385,
+    "Sight & Sound Presents: JOSHUA Live!": 94404,
+    "Street Fighter": 429640,
+    "Tad and the Magic Lamp": 6793,
+    "The Devils": 41186,
+    "The Mongoose": 52571,
+    "The Only Living Pickpocket in New York": 214000,
+    "Verity": 177756,
+    "Whalefall": 164555,
+    "Wicker": 671861,
+    "Your Mother, Your Mother, Your Mother": 15549
+   }
   }
  },
  "delivered": {
