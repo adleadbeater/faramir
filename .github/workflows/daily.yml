@@ -4,11 +4,12 @@ name: Faramir Daily
 # run a dry run (every write recorded, none performed) while production is disabled.
 on:
   schedule:
-    # Every 15 minutes, 14:07–20:52 UTC (10am–4:52pm EDT, 9am–3:52pm EST). Each trigger checks The
-    # Numbers' daily chart; the run happens once, as soon as the chart is ready (learned film by film,
-    # faramir/chart_watch.py, never later than 3pm ET), and later triggers that day exit at once.
-    # Off-the-hour minutes: GitHub delays top-of-hour schedules most (the v1 15:00 job started 3–5h late).
-    - cron: '7,22,37,52 14-20 * * *'
+    # GitHub drops most scheduled triggers (2026-10-30..11-01: two runs a day, the first at 1:53-2:28pm ET),
+    # so a trigger no longer means "check the chart now". Each trigger starts a *waiting* job that polls The
+    # Numbers every 5 minutes from 10am ET until the chart is ready (faramir/chart_watch.py, never later than
+    # 3pm ET). Several triggers are backups for dropped ones: once today's cards are delivered, later jobs
+    # exit within a minute. Off-the-hour minutes: GitHub delays top-of-hour schedules most.
+    - cron: '7 14,15,16,17,18,19 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -20,18 +21,73 @@ on:
         required: false
         default: ""
 
-# One production run at a time across every Faramir workflow (state, history and delivery
-# protocols rely on it). Queued, never cancelled mid-run.
-concurrency:
-  group: faramir-production
-  cancel-in-progress: false
-
 permissions:
   contents: write   # commits the chart-watch learning (public chart timings only) to the faramir-state branch
 
 jobs:
+  # Waits for the chart, holding no credentials and no state lock (so it can run for hours without
+  # breaking the lock-lease rule below). It only polls The Numbers' public chart and records when films
+  # appear; the "run" job then decides and posts. One waiting job at a time; a trigger that arrives
+  # meanwhile queues (the newest replaces an older queued one).
+  wait:
+    if: ${{ vars.FARAMIR_ENABLED == 'true' && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    concurrency:
+      group: faramir-chart-wait
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements-dev.txt
+
+      - name: Tests (no credentials, network blocked) — must pass before anything else
+        run: python -m pytest -q
+
+      - name: Chart-watch state
+        run: |
+          mkdir -p state
+          if git fetch -q origin faramir-state 2>/dev/null; then git show FETCH_HEAD:chart_watch.json > state/chart_watch.json; else echo '{"days": {}}' > state/chart_watch.json; fi
+
+      - name: Wait for yesterday's daily chart
+        run: python scripts/run_daily.py --wait-for-chart
+        env:
+          FARAMIR_CHART_WATCH: state/chart_watch.json
+
+      - name: Save chart-watch state
+        if: always()
+        run: |
+          git config user.name "faramir-bot"
+          git config user.email "faramir-bot@users.noreply.github.com"
+          if git fetch -q origin faramir-state 2>/dev/null; then git worktree add -q -B faramir-state "$RUNNER_TEMP/fs" FETCH_HEAD; else git worktree add -q --orphan -b faramir-state "$RUNNER_TEMP/fs"; fi
+          # Only the chart timings ("days"): never the "delivered" markers, which a run job on the same
+          # branch may have written since this job fetched it (a stale copy would let a day post twice).
+          python - "$RUNNER_TEMP/fs/chart_watch.json" <<'PY'
+          import json, os, sys
+          remote_path = sys.argv[1]
+          remote = json.load(open(remote_path)) if os.path.exists(remote_path) else {"days": {}}
+          remote["days"] = json.load(open("state/chart_watch.json")).get("days", {})
+          json.dump(remote, open(remote_path, "w"), indent=1, sort_keys=True)
+          PY
+          cd "$RUNNER_TEMP/fs"
+          git add chart_watch.json
+          git diff --staged --quiet || git commit -qm "chart watch (waiting job) $(date -u +%FT%H:%M) [skip ci]"
+          git push -q origin faramir-state
+
   run:
-    if: ${{ vars.FARAMIR_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+    needs: wait
+    # The waiting job is skipped for manual dispatches (a dry run never waits); a failed or cancelled wait
+    # means no run until the next trigger.
+    if: ${{ always() && (needs.wait.result == 'success' || needs.wait.result == 'skipped') && (vars.FARAMIR_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) }}
+    # One production run at a time across every Faramir workflow (state, history and delivery
+    # protocols rely on it). Queued, never cancelled mid-run.
+    concurrency:
+      group: faramir-production
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     # Well under the 45-minute state-lock lease (faramir.state_store.LOCK_TTL): GitHub stops a
     # stuck job long before its lease could lapse, and an expired lease refuses to write anyway.

@@ -12,6 +12,7 @@ import re
 import shutil
 from datetime import date
 
+from faramir import config, links
 from faramir.strategies.common import money
 from faramir.tn_chart import daily_url, weekend_url
 
@@ -19,6 +20,7 @@ LABEL = {"overtake": "Overtake", "chase": "Chase", "countdown": "Countdown", "ta
          "streak": "Streak", "legs": "Legs", "exit": "Exit", "dark_horse": "Dark Horse", "discovery": "Discovery",
          "star_record": "Star Record", "global_split": "Global Split", "studio_battle": "Studio Battle",
          "premium_run": "Premium Run"}
+CLASSIC_LABEL = "Modern vs. Classic"   # a Chase or Overtake against a film 25+ years old, compared in today's dollars
 
 def _context(rationale: str) -> str:
     parts = [p.strip() for p in (rationale or "").split(" · ")]
@@ -34,8 +36,16 @@ def _numbers(film: dict, c: dict) -> list[str]:
         comp = c.get("comp")
         if comp:
             dom_l, ww_l = comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")
-            lines.append(f"{comp['title']} ({comp.get('release_year')}): "
-                         f"{money(dom_l) if dom_l else 'n/a'} domestic · {money(ww_l) if ww_l else 'n/a'} worldwide (lifetime)")
+            adj = comp.get("adjusted")
+            if adj:   # a classic: both the raw and the restated figures, and exactly how (faramir/inflation.py)
+                dom_n, ww_n = comp.get("domestic_nominal"), comp.get("worldwide_nominal")
+                lines.append(f"{comp['title']} ({comp.get('release_year')}): "
+                             f"{money(dom_n) if dom_n else 'n/a'} domestic · {money(ww_n) if ww_n else 'n/a'} worldwide at release"
+                             f" = about {money(dom_l) if dom_l else 'n/a'} domestic · {money(ww_l) if ww_l else 'n/a'} worldwide "
+                             f"in {adj['year_now']} dollars (lifetime; compared in {adj['year_now']} dollars)")
+            else:
+                lines.append(f"{comp['title']} ({comp.get('release_year')}): "
+                             f"{money(dom_l) if dom_l else 'n/a'} domestic · {money(ww_l) if ww_l else 'n/a'} worldwide (lifetime)")
         elif c.get("threshold_value"):
             lines.append(f"Milestone: {money(c['threshold_value'])} {c['axis']}")
         return lines
@@ -78,7 +88,7 @@ def build(payload: dict | None, report: dict, imdb: dict, limit: int) -> list[di
     if not payload:
         return cards
     ranked = sorted(((f, c) for f in payload["active_films"] for c in f["candidates"] if c.get("rank")),
-                    key=lambda fc: fc[1]["rank"])
+                    key=lambda fc: (bool(fc[1].get("floor_fill")), fc[1]["rank"]))   # floor fillers after every real story
     per_film: dict = {}
     seen = set()
     for film, c in ranked:
@@ -88,11 +98,14 @@ def build(payload: dict | None, report: dict, imdb: dict, limit: int) -> list[di
         seen.add(key)
         per_film[film["tmdb_id"]] = per_film.get(film["tmdb_id"], 0) + 1
         label = LABEL.get(c.get("strategy"), c.get("strategy"))
-        if c.get("secondary_strategy"):
+        if links.is_modern_vs_classic(c):
+            label = CLASSIC_LABEL
+        elif c.get("secondary_strategy"):
             label += f" (+{LABEL.get(c['secondary_strategy'], c['secondary_strategy'])})"
         cards.append({"rank": c["rank"], "label": label, "title": None, "numbers": _numbers(film, c),
                       "context": _context(c.get("rationale")), "sources": _sources(film, c, data_date, weekend, imdb),
-                      "exploration": bool(c.get("exploration")), "_film": film, "_cand": c})
+                      "exploration": bool(c.get("exploration")), "floor_fill": bool(c.get("floor_fill")),
+                      "_film": film, "_cand": c})
         if len(cards) >= limit:
             break
     return cards
@@ -104,6 +117,19 @@ def _first_reason(logic: str) -> str:
     sentences = [x for x in sentences if not x.lower().startswith("all three kill")] or sentences
     return sentences[0] if sentences else "too soft to run"
 
+
+
+def skip_reason(card: dict, cards: list[dict], stop_after: int | None) -> str | None:
+    """Why this card needs no title yet: the day's slots are full, or it is a floor filler (a weak story promoted
+    only so at least ``config.DAILY_CARD_FLOOR`` cards go out) and the day already has that many."""
+    if stop_after is None:
+        return None
+    have = sum(postable(x) for x in cards)
+    if have >= stop_after:
+        return "not titled: today's slots are full"
+    if card.get("floor_fill") and have >= config.DAILY_CARD_FLOOR:
+        return "not titled: the day's floor is already met by stronger stories"
+    return None
 
 
 def write_titles(cards: list[dict], *, snap, phrases: list, pw_source: str, corpus_films: list[dict], credits,
@@ -133,8 +159,9 @@ def write_titles(cards: list[dict], *, snap, phrases: list, pw_source: str, corp
     tokens = {"input_tokens": 0, "output_tokens": 0}
     year = int((data_date or str(date.today()))[:4])
     for i, c in enumerate(cards, 1):
-        if stop_after is not None and sum(postable(x) for x in cards) >= stop_after:
-            c["title_note"] = "not titled: today's slots are full"
+        skip = skip_reason(c, cards, stop_after)
+        if skip:
+            c["title_note"] = skip
             continue
         film, cand = c["_film"], c["_cand"]
         comp_id = (cand.get("comp") or {}).get("tmdb_id")

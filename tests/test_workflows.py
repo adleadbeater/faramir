@@ -22,6 +22,14 @@ def code(name):
     return "\n".join(l for l in text(name).splitlines() if not l.strip().startswith("#"))
 
 
+def job(name, which):
+    """One job's block of a workflow, without comment lines."""
+    c = code(name)
+    m = re.search(rf"^  {which}:\n(.*?)(?=^  \w[\w-]*:\n|\Z)", c, re.S | re.M)
+    assert m, which
+    return m.group(1)
+
+
 @pytest.mark.parametrize("name", FILES)
 def test_shared_production_concurrency_group(name):
     assert re.search(r"concurrency:\s*\n\s*group: faramir-production\s*\n\s*cancel-in-progress: false", code(name))
@@ -29,7 +37,10 @@ def test_shared_production_concurrency_group(name):
 
 @pytest.mark.parametrize("name", FILES)
 def test_timeouts_fit_the_state_lease(name):
-    minutes = [int(m) for m in re.findall(r"timeout-minutes:\s*(\d+)", code(name))]
+    # the daily workflow's waiting job holds no lock, credentials or state writes (see the test below),
+    # so only the lock-holding "run" job is bound by the lease
+    body = job(name, "run") if name == "daily" else code(name)
+    minutes = [int(m) for m in re.findall(r"timeout-minutes:\s*(\d+)", body)]
     assert minutes and all(m <= 30 for m in minutes)
     if name in ("daily", "migrate"):  # the jobs that take the state lock
         assert all(m * 60 < LOCK_TTL.total_seconds() / 2 for m in minutes)
@@ -46,7 +57,8 @@ def test_tests_run_before_any_production_step(name):
 
 def test_daily_is_fail_closed_and_supports_dry_run():
     c = code("daily")
-    assert "if: ${{ vars.FARAMIR_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}" in c
+    assert "(vars.FARAMIR_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.dry_run))" in job("daily", "run")
+    assert "vars.FARAMIR_ENABLED == 'true' && github.event_name == 'schedule'" in job("daily", "wait")
     assert re.search(r"dry_run:\s*\n\s*description:.*\n\s*type: boolean\s*\n\s*default: true", c)
     assert "'--dry-run'" in c and "FARAMIR_ENABLED: ${{ vars.FARAMIR_ENABLED }}" in c
     assert "!= 'false'" not in c and "vars.FARAMIR_ENABLED != " not in c  # never "enabled unless disabled"
@@ -83,13 +95,15 @@ def test_no_history_collection_or_new_scraping(name):
 
 
 def test_lock_lease_exceeds_the_daily_timeout():
-    minutes = int(re.search(r"timeout-minutes:\s*(\d+)", code("daily")).group(1))
+    minutes = int(re.search(r"timeout-minutes:\s*(\d+)", job("daily", "run")).group(1))
     assert LOCK_TTL.total_seconds() >= 3 * minutes * 60
 
 
 def test_daily_polls_for_the_chart_and_keeps_only_public_state():
     c = code("daily")
-    assert "cron: '7,22,37,52 14-20 * * *'" in c                     # off-the-hour, every 15 minutes
+    # a few off-the-hour triggers, each starting a *waiting* job (GitHub drops most scheduled triggers, so
+    # one trigger per 15 minutes is not a poll: 2026-10-30..11-01 saw two runs a day, the first after 1:50pm)
+    assert "cron: '7 14,15,16,17,18,19 * * *'" in c
     assert "--require-chart" in c and '"$code" -eq 75' in c          # not ready = success, try next trigger
     assert "FARAMIR_PICK_ENGINE: ${{ vars.FARAMIR_PICK_ENGINE || 'cards' }}" in c
     assert "FARAMIR_CHART_WATCH: state/chart_watch.json" in c
@@ -104,3 +118,20 @@ def test_a_copy_of_the_sheet_is_only_ever_used_for_rehearsals():
             "inputs.copy_sheet_id != '') && inputs.copy_sheet_id || secrets.FARAMIR_SHEET_ID }}") in daily
     # migrate: apply still needs confirm_sheet to equal the sheet actually targeted (checked by the script)
     assert migrate.count("FARAMIR_SHEET_ID: ${{ inputs.copy_sheet_id || secrets.FARAMIR_SHEET_ID }}") == 2
+
+
+def test_the_waiting_job_polls_without_credentials_or_the_lock():
+    w, r = job("daily", "wait"), job("daily", "run")
+    assert "--wait-for-chart" in w and "needs: wait" in r
+    assert "github.event_name == 'schedule'" in w                    # a manual dispatch never waits
+    for secret in ("secrets.", "GOOGLE_SA_JSON", "ANTHROPIC_API_KEY", "SLACK_", "FARAMIR_SHEET_ID"):
+        assert secret not in w
+    assert "group: faramir-chart-wait" in w and "group: faramir-production" in r
+    assert "group: faramir-production" not in w                      # waiting never blocks other Faramir workflows
+    # it may update chart timings on the state branch but never the run job's "delivered" markers
+    assert 'remote["days"] =' in w and "delivered" not in re.sub(r"never the \"delivered\" markers", "", w.replace("(a stale copy", ""))
+
+
+def test_the_run_job_still_runs_when_the_wait_is_skipped_but_not_when_it_fails():
+    r = job("daily", "run")
+    assert "needs.wait.result == 'success' || needs.wait.result == 'skipped'" in r

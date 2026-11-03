@@ -81,14 +81,29 @@ MEANINGFUL_CATEGORIES = {
     "creative_head_to_head_cast": "shares a top-billed actor",
     "genre_milestone": "a top-5 film in a shared genre",
     "unexpected_giant_killer": "a notable film (Best Picture, classic or $500M+ worldwide)",
+    "classic_same_genre": "a classic in the film's own main genre",
 }
 ALL_TIME_TOP_N = 100
 CATEGORY_STRENGTH = {"franchise_sibling": 0.25, "creative_head_to_head_director": 0.2, "creative_head_to_head_cast": 0.15,
-                     "genre_milestone": 0.15, "unexpected_giant_killer": 0.25}
+                     "genre_milestone": 0.15, "unexpected_giant_killer": 0.25, "classic_same_genre": 0.2}
 
 
-def meaningful(categories: list[str], comp_rank: int | None) -> list[str]:
-    out = [MEANINGFUL_CATEGORIES[c] for c in categories if c in MEANINGFUL_CATEGORIES]
+def _notable_because(comp: dict) -> str:
+    """The actual reason a comparison film counts as notable, not the generic rule."""
+    bits = []
+    if comp.get("is_best_picture"):
+        bits.append("a Best Picture winner")
+    if comp.get("is_classic"):
+        bits.append(f"a {comp.get('release_year')} classic")
+    ww = comp.get("worldwide_lifetime")
+    if ww and ww > 500_000_000 and not bits:
+        bits.append(f"grossed over $500M worldwide" + (" in today's dollars" if comp.get("adjusted") else ""))
+    return " and ".join(bits) or "a notable film"
+
+
+def meaningful(categories: list[str], comp_rank: int | None, comp: dict | None = None) -> list[str]:
+    out = [(_notable_because(comp) if c == "unexpected_giant_killer" and comp else MEANINGFUL_CATEGORIES[c])
+           for c in categories if c in MEANINGFUL_CATEGORIES]
     if comp_rank is not None and comp_rank <= ALL_TIME_TOP_N:
         out.append(f"all-time top {ALL_TIME_TOP_N} (rank {comp_rank})")
     return out

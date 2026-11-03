@@ -12,7 +12,7 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from faramir import rationale
+from faramir import links, rationale
 from faramir.binding import candidate_id
 from faramir.classify import classify
 from faramir.corpus import build_index
@@ -67,7 +67,7 @@ def _prior_gaps(deliveries: list[dict], fkey: str) -> dict:
 
 def run_daily(films: list[dict], payload_films: list[dict], corpus: list[dict], data_date: str,
               gross_as_of: str | None, suppressed_pairs: set, ledger: Ledger, reg: dict | None = None,
-              tracked: list[dict] | None = None) -> EngineResult:
+              tracked: list[dict] | None = None, signals_fn=None, keywords_fn=None) -> EngineResult:
     reg = reg or registry()
     index = build_index(corpus)
     by_id = {f.get("tmdb_id"): f for f in films}
@@ -100,6 +100,10 @@ def run_daily(films: list[dict], payload_films: list[dict], corpus: list[dict], 
             found.extend(star_record.detect(film, corpus, tracked or films, data_date, gross_as_of))
         if enabled("global_split", reg):
             found.extend(global_split.detect(film, corpus, data_date, gross_as_of, rollout_complete=None))
+
+    # Modern vs. Classic: name what connects each classic comparison to the film (shared people, genre, themes) and
+    # MovieWeb's audience evidence for the classic's talent, before the stories are classified and ranked.
+    links.enrich(found.events, by_id, signals_fn, keywords_fn)
 
     clusters = classify(found.events)
     qualified = [c for c in clusters if c.disposition == "qualified"]

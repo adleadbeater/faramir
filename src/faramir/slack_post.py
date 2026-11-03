@@ -250,6 +250,12 @@ def post_pick(
         comp_dom = fmt_money(comp_film.get("domestic_lifetime"))
         comp_ww = fmt_money(comp_film.get("worldwide_lifetime"))
         comp_label = f"{comp_title} ({comp_year})" if comp_year else comp_title
+        lifetime = "(lifetime)"
+        adj = comp_film.get("adjusted")
+        if adj:   # a classic, compared in today's dollars: say so, and show what it grossed at release
+            comp_dom = f"{comp_dom} (was {fmt_money(comp_film.get('domestic_nominal'))})"
+            comp_ww = f"{comp_ww} (was {fmt_money(comp_film.get('worldwide_nominal'))})"
+            lifetime = f"(lifetime, in {adj['year_now']} dollars)"
         numbers_block = {
             "type": "section",
             "fields": [
@@ -259,7 +265,7 @@ def post_pick(
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*{comp_label}* (lifetime)\nDom: {comp_dom}  ·  WW: {comp_ww}",
+                    "text": f"*{comp_label}* {lifetime}\nDom: {comp_dom}  ·  WW: {comp_ww}",
                 },
             ],
         }

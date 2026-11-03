@@ -23,6 +23,7 @@ SCORE_WEIGHTS = {
     "studio_sibling": 2,
     "same_origin": 1,
     "unexpected_giant_killer": 7,
+    "classic_same_genre": 5,
 }
 BONUS_BEST_PICTURE = 3
 BONUS_CLASSIC = 2
@@ -83,6 +84,12 @@ def detect_angle_categories(active_film: dict, comp: dict, corpus: list[dict]) -
         if any(f.get("tmdb_id") == comp_tmdb for f in genre_top):
             categories.append("genre_milestone")
 
+    # Classic in the film's own main genre (TMDB lists the main genre first): a Western nearing an iconic
+    # Western. Only for classic-era comps, whose grosses are in today's dollars (faramir.inflation).
+    if comp.get("era") == "classic" and (active_film.get("genres") or [None])[0] \
+            and (active_film.get("genres") or [None])[0] == (comp.get("genres") or [""])[0]:
+        categories.append("classic_same_genre")
+
     # Unexpected giant killer: no franchise/director/cast connection AND comp is notable.
     # Genre overlap is intentionally NOT a disqualifier — a horror film passing a
     # sci-fi blockbuster shares "Adventure" in both genre lists but is still a
@@ -134,6 +141,9 @@ def score_candidate(
 
     if "unexpected_giant_killer" in angle_categories:
         score += SCORE_WEIGHTS["unexpected_giant_killer"]
+
+    if "classic_same_genre" in angle_categories:
+        score += SCORE_WEIGHTS["classic_same_genre"]
 
     # Comp bonuses
     if comp.get("is_best_picture"):

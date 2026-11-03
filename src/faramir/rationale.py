@@ -6,6 +6,7 @@ so every figure in it is traceable.
 
 from __future__ import annotations
 
+from faramir import inflation
 from faramir.events.schema import Event
 from faramir.strategies.common import money
 
@@ -38,6 +39,13 @@ def line(e: Event, secondary: Event | None = None) -> str:
         body = f"{money(ev['gap'])} from {money(ev['target_value'])} {e.axis}; about {_days(ev['days_to_cross'])} at {money(ev['pace_per_day'])}/day"
     else:
         body = e.reason
+    comp = (e.candidate or {}).get("comp") or {}
+    if comp.get("adjusted") and e.strategy in ("overtake", "chase"):
+        link = (e.candidate or {}).get("link") or {}
+        head = "Modern vs. Classic, compared" if link.get("linked") else "Compared"
+        body += f" · {head} in {comp['adjusted']['year_now']} dollars: {inflation.method_note(comp, e.axis)}"
+        if link.get("text"):
+            body += f" · {link['text']}"
     status = f" ({e.status})" if e.status in ("provisional", "unverifiable") else ""
     out = f"{LABEL[e.strategy]}{status} · {body} · sources: {_src(e)}"
     if secondary:

@@ -144,8 +144,20 @@ def rank(decisions: list[Decision], slots: int, cfg: dict, explored_this_week: i
                                               hashlib.sha1(d.event_id.encode()).hexdigest()))
     explore = rest_sorted[:n_explore]
     chosen = {d.event_id for d in main + explore}
+    # The daily floor: when fewer than ``min_cards`` (plus two spares, for titles the fact check passes on) were
+    # chosen, promote the best of the rest, weak or crowded ones included. They are flagged floor_fill, so the
+    # card stage titles them only while the day is still short of its floor.
+    floor_fill: set[str] = set()
+    want = cfg.get("min_cards", 0)
+    if want and len(chosen) < want + 2:
+        pool = sorted((d for d in ordered if d.event_id not in chosen), key=lambda d: (-d.score, d.event_id))
+        for d in pool[:want + 2 - len(chosen)]:
+            floor_fill.add(d.event_id)
+        chosen |= floor_fill
     for d in ordered:
-        if d.event_id in chosen:
+        if d.event_id in floor_fill:
+            d.disposition = {"value": "suggested", "reason_codes": [f"rank_{d.rank}", "floor_fill"]}
+        elif d.event_id in chosen:
             d.disposition = {"value": "suggested", "reason_codes": [f"rank_{d.rank}"]}
         elif d.event_id in too_weak:
             d.disposition = {"value": "filtered", "reason_codes": ["too_weak_a_story"]}

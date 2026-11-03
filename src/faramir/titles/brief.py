@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from faramir import inflation
 from faramir.strategies.common import money
 from faramir.titles import data
 
@@ -72,6 +73,10 @@ class Brief:
                             f"accurate genre wording on MovieWeb (S/A ≈ {top['sa']:,}, {top['n']} uses). Don't swap in a "
                             "weaker genre word or blend genres (\"Action-Adventure Thriller\").")
         required.append("- Every title must include \"Box Office\".")
+        if self.kits and any(k.get("role", "").startswith("THE FILM IT") for k in self.kits) and "(inflation-adjusted)" in self.fact_sheet:
+            required.append("- This is a MODERN VS. CLASSIC story: the classic's gross is inflation-adjusted, so never quote its "
+                            "dollar figures. Describe the classic by its genre, stars or era (\"a 1970s Western Classic\"), and say "
+                            "\"Inflation-Adjusted\" only if the title still reads cleanly.")
         allowed = [o for o in self.verb_options if o["allowed"]]
         if allowed:
             listing = "; ".join(f"\"{o['phrase']}\" (S/A ≈ {o['sa']:,}, {o['n']} uses, {o['basis']})" for o in allowed)
@@ -130,17 +135,28 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
     cast = (credits.get("cast") or card_film.get("lead_cast") or [])[:3]
     collection = credits.get("collection") or card_film.get("collection_name") or ""
     comp = cand.get("comp") or {}
+    classic = bool(comp.get("adjusted"))
     v = cand.get("event_values") or {}
     figures: list[float] = []
-    lines = [f"STORY TYPE: {strategy.replace('_', ' ').title()}: {WHAT_IT_IS.get(strategy, strategy)}.",
+    what = WHAT_IT_IS.get(strategy, strategy)
+    if classic:
+        what = (("the film's total just passed " if strategy == "overtake" else "the film is about to pass ")
+                + f"a CLASSIC film's lifetime gross, compared in {comp['adjusted']['year_now']} dollars (inflation-adjusted)")
+    link = cand.get("link") or {}
+    mvc = classic and bool(link.get("linked"))
+    lines = [f"STORY TYPE: {'Modern vs. Classic' if mvc else strategy.replace('_', ' ').title()}: {what}.",
              f"STATUS: {STATUS_WORDS.get(status, status)}.",
              f"FILM: {title}" + (f" · genres (TMDB): {', '.join(genres)}" if genres else "")
              + (f" · director: {director}" if director else "") + (f" · top-billed cast: {', '.join(cast)}" if cast else "")
              + (f" · franchise: {collection}" if collection else "")
              + (f" · rated {credits['certification']}" if credits.get("certification") else "")
              + (f" · studios: {', '.join(credits['companies'][:4])}" if credits.get("companies") else "")
-             + (f" · TMDB keywords: {', '.join(credits['keywords'][:15])}" if credits.get("keywords") else ""),
-             "VERIFIED FIGURES:"]
+             + (f" · TMDB keywords: {', '.join(credits['keywords'][:15])}" if credits.get("keywords") else "")]
+    if classic and link.get("text"):
+        # The through-line between the two films, and which of the classic's people MovieWeb readers click on:
+        # name the link in the title when it reads naturally (a strong tag), never invent one.
+        lines.append("CONNECTION: " + link["text"])
+    lines.append("VERIFIED FIGURES:")
     if cand.get("kind") != "event":
         dom, ww = card_film.get("domestic_today"), card_film.get("worldwide_today")
         lines.append(f"- {title}: {money(dom)} domestic total through {data_date}"
@@ -151,12 +167,19 @@ def build(card_film: dict, cand: dict, credits: dict, data_date: str, weekend: s
             comp_genres = ", ".join(comp.get("genres") or [])
             honours = ", ".join(x for x, on in (("Best Picture winner", comp.get("is_best_picture")),
                                                 ("classic", comp.get("is_classic"))) if on)
-            lines.append(f"- Comparison: '{comp['title']}' ({comp.get('release_year')}): "
-                         f"{money(dom_l) + ' domestic, ' if dom_l else ''}{money(ww_l) + ' worldwide ' if ww_l else ''}"
-                         f"lifetime (MovieWeb's comparison corpus)"
-                         + (f" · genres: {comp_genres}" if comp_genres else "") + (f" · {honours}" if honours else ""))
-            figures += [x for x in (comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")) if x]
-        if cand.get("threshold_value"):
+            if classic:
+                # The classic's dollars are restated; its raw and restated figures stay OUT of the figures a title may
+                # quote (a raw figure would mislead, a restated one needs its "adjusted" caveat the title can't carry).
+                lines.append(f"- Comparison: '{comp['title']}' ({comp.get('release_year')}), a classic. "
+                             f"{inflation.method_note(comp, cand.get('axis'))}"
+                             + (f" · genres: {comp_genres}" if comp_genres else "") + (f" · {honours}" if honours else ""))
+            else:
+                lines.append(f"- Comparison: '{comp['title']}' ({comp.get('release_year')}): "
+                             f"{money(dom_l) + ' domestic, ' if dom_l else ''}{money(ww_l) + ' worldwide ' if ww_l else ''}"
+                             f"lifetime (MovieWeb's comparison corpus)"
+                             + (f" · genres: {comp_genres}" if comp_genres else "") + (f" · {honours}" if honours else ""))
+                figures += [x for x in (comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")) if x]
+        if cand.get("threshold_value") and not classic:
             if not comp:
                 lines.append(f"- Milestone: {money(cand['threshold_value'])} {cand.get('axis')}")
             figures.append(cand["threshold_value"])
@@ -231,8 +254,10 @@ def _kits(strategy, title, credits, card_film, comp, comp_credits, v, other, poo
     if comp:
         honour = "Best Picture-Winning" if comp.get("is_best_picture") else "Classic" if comp.get("is_classic") else ""
         cr = {**(comp_credits or {}), "genres": comp.get("genres") or (comp_credits or {}).get("genres") or []}
+        # a classic's dollars are restated, so no gross-based description ("$300 Million Hit") may be built from them
+        gross = (None, None) if comp.get("adjusted") else (comp.get("domestic_lifetime"), comp.get("worldwide_lifetime"))
         out.append(kit("THE FILM IT'S PASSING" if strategy != "overtake" else "THE FILM IT PASSED", comp["title"], cr,
-                       (comp.get("domestic_lifetime"), comp.get("worldwide_lifetime")), honour, True))
+                       gross, honour, True))
     for key, role, required in (("previous_leader", "THE FILM IT REPLACED AT NO. 1", strategy == "takeover"),
                                 ("rival", "THE FILM IT OUT-EARNED", strategy == "dark_horse")):
         if v.get(key):

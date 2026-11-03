@@ -132,3 +132,9 @@ def get_external_ids(tmdb_id: int) -> dict:
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def get_keywords(tmdb_id: int) -> list[str]:
+    """TMDB keyword names for a film (themes, settings, source material)."""
+    data = _get_json_with_retry(f"/movie/{tmdb_id}/keywords", {"api_key": _api_key()})
+    return [k["name"] for k in data.get("keywords", []) if k.get("name")]

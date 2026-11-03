@@ -4,7 +4,7 @@ reported same-day yesterday are in again, or once the time they usually report b
 import importlib.util
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from faramir import chart_watch as cw
 
@@ -98,3 +98,103 @@ def test_rerun_of_a_past_day_learns_nothing(monkeypatch, tmp_path):
     monkeypatch.setattr(run, "chart_films", lambda d: [("Clayface", BIG)] * 20)
     assert run.chart_ready(DAY, now=datetime(2026, 11, 5, 9, 0, tzinfo=cw.ET))[0]
     assert not os.path.exists(run.WATCH_FILE)
+
+
+# ---- 2026-11-02: waiting inside one job instead of on GitHub's dropped cron triggers -------------------------
+
+def at(h, m=0, day=30):
+    return datetime(2026, 10, day, h, m, tzinfo=cw.ET)
+
+
+class Clock:
+    def __init__(self, start):
+        self.now, self.slept = start, []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.now += timedelta(seconds=seconds)
+
+
+def test_a_chart_with_no_history_is_ready_once_it_has_been_quiet_for_the_settle_time():
+    store = {"days": {}}
+    films = [(f"Film {i}", (20 - i) * BIG) for i in range(14)]
+    cw.record(store, DAY, 11 * 60, films)
+    assert cw.unchanged_for(store, DAY, 11 * 60 + 30) == 30
+    assert not cw.decide(store, DAY, 11 * 60 + 30, [t for t, _ in films], day_before_rows=40)[0]
+    ready, why = cw.decide(store, DAY, 11 * 60 + cw.SETTLE, [t for t, _ in films], day_before_rows=40)
+    assert ready and why == "14 films; chart unchanged for 45 minutes"
+
+
+def test_any_change_to_the_chart_restarts_the_quiet_clock():
+    store = {"days": {}}
+    films = [(f"Film {i}", (20 - i) * BIG) for i in range(14)]
+    cw.record(store, DAY, 11 * 60, films)
+    cw.record(store, DAY, 11 * 60 + 30, films)                       # same chart: no change
+    assert cw.unchanged_for(store, DAY, 12 * 60) == 60
+    cw.record(store, DAY, 12 * 60, [("Film 0", 21 * BIG)] + films[1:])   # a top-film gross moved
+    assert cw.unchanged_for(store, DAY, 12 * 60) == 0
+    cw.record(store, DAY, 12 * 60 + 5, films + [("New", BIG)])       # a new film appeared
+    assert cw.unchanged_for(store, DAY, 12 * 60 + 5) == 0
+
+
+def test_the_quiet_rule_never_applies_to_a_thin_chart():
+    store = {"days": {}}
+    cw.record(store, DAY, 10 * 60, [("A", BIG), ("B", BIG)])
+    assert not cw.decide(store, DAY, 13 * 60, ["A", "B"], day_before_rows=40)[0]
+
+
+def test_days_recorded_by_the_old_sparse_checks_are_never_learned_from():
+    legacy = {"days": {"2026-10-28": {"checks": [["17:50", 21]], "first_seen": {"Clayface": "17:50"},
+                                      "gross": {"Clayface": 2 * BIG}}}}
+    assert cw.expectations(legacy, DAY) == {}
+    fresh = history(YESTERDAY)
+    assert "Clayface" in cw.expectations(fresh, DAY)
+
+
+def test_wait_polls_every_five_minutes_and_stops_as_soon_as_the_chart_is_ready(tmp_path):
+    path, clock = str(tmp_path / "w.json"), Clock(at(11, 0))
+    chart = {"n": 0}
+
+    def fetch(d):
+        if d != DAY:
+            return [(f"Y{i}", BIG) for i in range(14)]
+        chart["n"] += 1
+        return [(f"Film {i}", (20 - i) * BIG) for i in range(14)] if chart["n"] >= 3 else []
+
+    # no history: the chart is posted on the third poll; 14 of the day before's 14 films are in
+    ready, why = cw.wait(DAY, path, now_fn=clock, sleep=clock.sleep, fetch=fetch)
+    assert ready and clock.slept == [300, 300]
+    assert cw.load(path)["days"]["2026-10-29"]["checks"][0][0] == "11:10"
+
+
+def test_wait_does_not_poll_before_the_earliest_time(tmp_path):
+    clock, calls = Clock(at(9, 7)), []
+
+    def fetch(d):
+        calls.append(clock.now)
+        return [(f"Film {i}", BIG) for i in range(14)]
+
+    ready, _ = cw.wait(DAY, str(tmp_path / "w.json"), now_fn=clock, sleep=clock.sleep, fetch=fetch)
+    assert ready and min(calls) >= at(10, 0) and clock.slept[0] == 53 * 60
+
+
+def test_wait_gives_up_at_five_pm_when_the_chart_never_appears(tmp_path):
+    clock = Clock(at(14, 0))
+    ready, why = cw.wait(DAY, str(tmp_path / "w.json"), now_fn=clock, sleep=clock.sleep, fetch=lambda d: [])
+    assert not ready and why == "not posted yet" and clock.now >= at(17, 0)
+
+
+def test_wait_hands_over_to_a_later_trigger_after_the_max_wait(tmp_path):
+    clock = Clock(at(10, 0))
+    ready, why = cw.wait(DAY, str(tmp_path / "w.json"), now_fn=clock, sleep=clock.sleep, fetch=lambda d: [])
+    assert not ready and clock.now - at(10, 0) >= timedelta(minutes=cw.MAX_WAIT)
+    assert clock.now < at(17, 0)
+
+
+def test_waiting_for_a_past_day_checks_once(tmp_path):
+    clock = Clock(at(12, 0, day=31))
+    ready, _ = cw.wait(DAY, str(tmp_path / "w.json"), now_fn=clock, sleep=clock.sleep, fetch=lambda d: [("A", BIG)] * 20)
+    assert ready and clock.slept == []

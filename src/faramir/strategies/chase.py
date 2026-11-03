@@ -14,16 +14,21 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from faramir import inflation
 from faramir.corpus import films_in_range, reported
 from faramir.events.schema import Event
 from faramir.matcher import detect_angle_categories
-from faramir.strategies.common import (DetectorResult, all_time_rank, axis_source, comp_ref, comp_strength,
+from faramir.strategies.common import (DetectorResult, all_time_rank, axis_source, comp_recognized, comp_ref, comp_strength,
                                        corpus_source, film_ref, meaningful, money, pace, series)
 
 WITHIN_PCT = 0.10
 MAX_DAYS_TO_PASS = 21
 MAX_STALE_DAYS = 2
 MAX_PER_FILM_AXIS = 3
+# The daily floor (at least two cards a day): a chase that isn't a strong story is still emitted, weak (below the
+# ranker's minimum strength), so it reaches a card only when nothing stronger fills the day.
+FALLBACK_STRENGTH = 0.3
+FALLBACK_MAX_DAYS = 60
 
 
 def detect(film: dict, corpus: list[dict], corpus_index: dict, data_date: str, gross_as_of: str | None,
@@ -52,10 +57,8 @@ def detect(film: dict, corpus: list[dict], corpus_index: dict, data_date: str, g
                 continue
             cats = detect_angle_categories(film, comp, corpus)
             rank = all_time_rank(value, corpus, axis, exclude_tmdb=comp.get("tmdb_id"))
-            why = meaningful(cats, rank)
-            if not why:
-                out.reject("chase", film, axis, target, "not_meaningful", "no franchise, talent, genre-rank, notable or all-time link")
-                continue
+            why = meaningful(cats, rank, comp)
+            fallback = not why
             if stale >= MAX_STALE_DAYS:
                 out.reject("chase", film, axis, target, "stale_figure", f"{axis} figure unchanged for {stale} days")
                 continue
@@ -66,12 +69,20 @@ def detect(film: dict, corpus: list[dict], corpus_index: dict, data_date: str, g
                 continue
             days = gap / per_day
             if days > MAX_DAYS_TO_PASS:
-                out.reject("chase", film, axis, target, "pace_insufficient",
-                           f"{money(gap)} gap at {money(per_day)}/day ≈ {days:.0f} days > {MAX_DAYS_TO_PASS}")
+                if days > FALLBACK_MAX_DAYS:
+                    out.reject("chase", film, axis, target, "pace_insufficient",
+                               f"{money(gap)} gap at {money(per_day)}/day ≈ {days:.0f} days > {FALLBACK_MAX_DAYS}")
+                    continue
+                fallback = True
+            if fallback and not comp_recognized(comp, cats, rank):
+                out.reject("chase", film, axis, target, "not_meaningful",
+                           "no franchise, talent, genre or notable link, and readers won't know the film")
                 continue
-            scored.append((comp, value, cats, rank, why, per_day, basis, gap, days))
-        scored.sort(key=lambda t: (-comp_strength(t[2], t[3]), t[1]))
-        for comp, value, cats, rank, why, per_day, basis, gap, days in scored[:MAX_PER_FILM_AXIS]:
+            scored.append((comp, value, cats, rank, why or ["a comparison within 10%"], per_day, basis, gap, days, fallback))
+        scored.sort(key=lambda t: (t[9], -comp_strength(t[2], t[3]), t[1]))
+        strong = [t for t in scored if not t[9]][:MAX_PER_FILM_AXIS]
+        weak = [t for t in scored if t[9]][:1]
+        for comp, value, cats, rank, why, per_day, basis, gap, days, fallback in strong + weak:
             projected = (date.fromisoformat(data_date) + timedelta(days=max(1, round(days)))).isoformat()
             out.emit(Event(
                 strategy="chase", film=film_ref(film), period=data_date, axis=axis, target=comp_ref(comp),
@@ -83,11 +94,14 @@ def detect(film: dict, corpus: list[dict], corpus_index: dict, data_date: str, g
                 sources=[axis_source(film, axis, data_date), corpus_source(gross_as_of)],
                 reason=(f"{film_ref(film)['title']} is {money(gap)} ({gap / value:.1%}) below {comp.get('title')} "
                         f"({comp.get('release_year')}) on the {axis} axis; at {money(per_day)}/day ({basis.replace('_', ' ')}) "
-                        f"it passes in about {days:.0f} days. Meaningful because: {'; '.join(why)}."),
-                reason_codes=["within_10pct_meaningful_comp", f"pace:{basis}"] + [f"category:{x}" for x in cats],
-                strength=comp_strength(cats, rank, base=0.45),
+                        f"it passes in about {days:.0f} days. Meaningful because: {'; '.join(why)}."
+                        + (f" {inflation.method_note(comp, axis)}" if comp.get("adjusted") else "")),
+                reason_codes=["within_10pct_meaningful_comp" if not fallback else "fallback_weak_comparison",
+                              f"pace:{basis}"] + [f"category:{x}" for x in cats] + (["classic_era"] if comp.get("era") else []),
+                strength=FALLBACK_STRENGTH if fallback else comp_strength(cats, rank, base=0.45),
                 candidate={"kind": "about_to_pass", "axis": axis, "threshold_value": value, "angle_categories": cats,
                            "comp": comp, "suppressed": False, "active_tmdb_id": film.get("tmdb_id"),
                            "comp_tmdb_id": comp.get("tmdb_id"), "comp_title": comp.get("title"),
-                           "richness_score": round(10 * comp_strength(cats, rank, base=0.45))}))
+                           "era": comp.get("era"), "fallback": fallback,
+                           "richness_score": round(10 * (FALLBACK_STRENGTH if fallback else comp_strength(cats, rank, base=0.45)))}))
     return out

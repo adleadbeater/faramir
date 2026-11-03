@@ -137,7 +137,7 @@ def test_exploration_prefers_a_strategy_not_already_in_the_main_slots():
 
 def test_strong_events_are_deferred_not_dropped_when_out_of_slots():
     ds = [R.score_event(ev("overtake", 0.95, n=i), CFG, "r") for i in range(4)]
-    out = R.rank(ds, slots=2, cfg=CFG, explored_this_week=5)
+    out = R.rank(ds, slots=2, cfg={**CFG, "min_cards": 0}, explored_this_week=5)
     assert [d.disposition["value"] for d in out].count("deferred") == 2
 
 
@@ -381,6 +381,25 @@ def test_too_weak_stories_get_no_slot():
         d.score_components, d.exploration, d.rank = {"event_strength": strength}, {"flag": False}, None
         return d
     ds = [dec(0, 1, "overtake", .67, .35), dec(1, 2, "dark_horse", .66, .7)]
-    out = R.rank(ds, 4, {**CFG, "min_event_strength": 0.4, "exploration": {"share": 0, "min_slots_per_week": 0}}, 1)
+    cfg = {**CFG, "min_event_strength": 0.4, "min_cards": 0, "exploration": {"share": 0, "min_slots_per_week": 0}}
+    out = R.rank(ds, 4, cfg, 1)
     assert [d.event_id for d in out if d.disposition["value"] == "suggested"] == ["e1"]
     assert next(d for d in out if d.event_id == "e0").disposition["reason_codes"] == ["too_weak_a_story"]
+
+    # the daily floor (Rob, 2026-11-03): with min_cards, the weak story is promoted, flagged, and ranked after the real one
+    out = R.rank([dec(0, 1, "overtake", .67, .35), dec(1, 2, "dark_horse", .66, .7)], 4, {**cfg, "min_cards": 2}, 1)
+    assert [d.event_id for d in out if d.disposition["value"] == "suggested"] == ["e0", "e1"]
+    assert next(d for d in out if d.event_id == "e0").disposition["reason_codes"][-1] == "floor_fill"
+    assert "floor_fill" not in next(d for d in out if d.event_id == "e1").disposition["reason_codes"]
+
+
+def test_the_floor_never_invents_stories():
+    def dec(i, film, strength):
+        d = R.Decision.__new__(R.Decision)
+        d.event_id, d.film, d.strategy_primary, d.score = f"e{i}", {"tmdb_id": film}, "chase", .5
+        d.score_components, d.exploration, d.rank = {"event_strength": strength}, {"flag": False}, None
+        return d
+    cfg = {**CFG, "min_event_strength": 0.4, "min_cards": 2, "exploration": {"share": 0, "min_slots_per_week": 0}}
+    out = R.rank([dec(0, 1, .3)], 4, cfg, 1)
+    assert [d.disposition["value"] for d in out] == ["suggested"]          # one candidate: one card, never padded
+    assert R.rank([], 4, cfg, 1) == []

@@ -25,6 +25,7 @@ PICKS_TARGET = {0: 6, 1: 4, 2: 4, 3: 4, 4: 4, 5: 2, 6: 2}
 PICKS_MIN_BY_DAY = {0: 6, 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2}
 PICKS_MAX_BY_DAY = {0: 6, 1: 4, 2: 4, 3: 4, 4: 4, 5: 2, 6: 2}
 PICKS_MIN_FLOOR = 1
+DAILY_CARD_FLOOR = 2   # Rob, 2026-11-03: a daily beat, so at least two cards go out every day (weak ones only to fill it)
 PICKS_MAX_PER_FILM = 2
 SIGNAL_LOOKBACK_DAYS = 180
 SIGNAL_MIN_SESSIONS = 25_000

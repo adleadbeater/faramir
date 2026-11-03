@@ -122,7 +122,8 @@ def prioritize(payload_films: list[dict], daily_clusters: list, weekend_clusters
         for d in ordered:
             tid, cand = by_event[d.event_id]
             if d.event_id in keep and tid == pf["tmdb_id"]:
-                cands.append({**cand, "rank": d.rank, "score": d.score, "exploration": d.exploration["flag"]})
+                cands.append({**cand, "rank": d.rank, "score": d.score, "exploration": d.exploration["flag"],
+                              "floor_fill": "floor_fill" in d.disposition["reason_codes"]})
         new_payload.append({**pf, "candidates": cands})
     decisions = ordered + [d for d, _, cand in entries if cand is None]
     return new_payload, decisions

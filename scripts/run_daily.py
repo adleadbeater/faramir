@@ -555,6 +555,10 @@ def _run(ctx, run_date=None):
     runtime.note("corpus", corpus_load.summary())
     runtime.note("corpus_exclusions", [vars(e) for e in corpus_load.exclusions])
     logger.info("Corpus health: %s", corpus_load.summary())
+    # Modern vs. Classic: films 25+ years old are compared in today's dollars (faramir/inflation.py), never on
+    # raw dollars; the card says how. Pre-1955 films have no verified ticket price and stop being comparisons.
+    from faramir import inflation
+    runtime.note("inflation_adjusted_comps", inflation.apply(corpus_load.films, today))
     corpus = corpus_load.films
 
     # Step 8: Audience signals. Phase 2: from the sanitized Cerebro snapshot when configured
@@ -669,9 +673,29 @@ def _run(ctx, run_date=None):
 
     ledger = default_ledger(ctx.out_dir, dry_run=ctx.dry_run)
     ledger.append("editorial", editorial.capture([r.raw for r in suggestions_table.rows], today), month=str(today)[:7])
+    # Lookups for the Modern vs. Classic link: MovieWeb audience signals for the classic's talent (Cerebro snapshot)
+    # and TMDB keywords for shared themes. Both are cached per run; a lookup that fails is simply no evidence.
+    _sig_cache: dict = {}
+    _kw_cache: dict = {}
+
+    def signals_fn(names):
+        if cerebro_snap is None:
+            return {}
+        missing = [n for n in names if n not in _sig_cache]
+        if missing:
+            _sig_cache.update(audience_mod.signals(cerebro_snap, missing))
+        return {n: _sig_cache[n] for n in names if n in _sig_cache}
+
+    def keywords_fn(tmdb_id):
+        if tmdb_id not in _kw_cache:
+            from faramir import tmdb as tmdb_mod
+            _kw_cache[tmdb_id] = tmdb_mod.get_keywords(tmdb_id)
+        return _kw_cache[tmdb_id]
+
     engine = strategy_engine.run_daily(enriched_active, active_films_payload, corpus, bom_date_used.isoformat(),
                                        corpus_load.meta.get("gross_as_of"), suppressed_pairs, ledger,
-                                       tracked=list(new_state.values()))
+                                       tracked=list(new_state.values()), signals_fn=signals_fn,
+                                       keywords_fn=keywords_fn if os.environ.get("TMDB_API_KEY") else None)
     active_films_payload = engine.payload_films
     runtime.note("strategy_engine", engine.summary())
 
@@ -755,10 +779,13 @@ def _run(ctx, run_date=None):
             weekend_rows = latest.rows if latest else []
         except Exception as exc:  # noqa: BLE001 — weekend-only films are optional; never fail the run
             logger.warning("weekend chart films unavailable for prioritization: %s", exc)
+    # The daily floor of cards (priority config min_cards) belongs to the cards engine; the rollback engine
+    # (claude_select) keeps the old slot logic.
+    rank_cfg = priority_cfg if os.environ.get("FARAMIR_PICK_ENGINE", "cards") == "cards" else {**priority_cfg, "min_cards": 0}
     active_films_payload, decisions = prio.prioritize(
         active_films_payload, engine.delivered_clusters, weekend_clusters, discovery_items,
         {f.get("tmdb_id"): f for f in enriched_active}, cerebro_signals, estimates,
-        learn_pipeline.deliveries_by_strategy(ledger), headline_recs, priority_cfg, ctx.run_id, slots,
+        learn_pipeline.deliveries_by_strategy(ledger), headline_recs, rank_cfg, ctx.run_id, slots,
         learn_pipeline.explored_recently(ledger, str(today)), weekend_rows)
     ledger.append("decisions", [d.record() for d in decisions], month=str(today)[:7])
     runtime.note("prioritization", {
@@ -1019,6 +1046,7 @@ def _card_picks(gc, active_films_payload: list[dict], slots: int, data_date: str
                 state: dict, corpus: list[dict], snap, gross_as_of: str | None) -> tuple[list[dict], str | None]:
     """Step 11 (Faramir 2.0): ranked cards → Aragorn titles → picks bound to their candidates."""
     from faramir import cards as cards_mod
+    from faramir import config
     from faramir import runtime
     from faramir.binding import bind_picks
     from faramir.sheet import buffer_usage
@@ -1052,6 +1080,9 @@ def _card_picks(gc, active_films_payload: list[dict], slots: int, data_date: str
     runtime.note("claude_binding", binding.summary())
     for r in binding.rejected:
         logger.warning("Card did not bind to its candidate (%s): %s", r["reason"], r["pick"].get("headline"))
+    if len(binding.accepted) < config.DAILY_CARD_FLOOR:
+        return binding.accepted, (f"⚠ Only {len(binding.accepted)} story cleared Faramir's checks today (the daily floor is "
+                                  f"{config.DAILY_CARD_FLOOR}): no other candidate had a title that passed the fact check.")
     return binding.accepted, None
 
 
@@ -1076,7 +1107,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--require-chart", action="store_true",
                         help="the scheduled job: stop (exit 75) until yesterday's chart is ready, learned film by film "
                              "(faramir/chart_watch.py), and do nothing once today's cards were delivered")
+    parser.add_argument("--wait-for-chart", action="store_true",
+                        help="the scheduled job's first step: poll The Numbers (faramir/chart_watch.wait) until yesterday's "
+                             "chart is ready, then exit 0. Holds no lock and posts nothing; the --require-chart step decides")
     args = parser.parse_args(argv or [])
+
+    if args.wait_for_chart:
+        from faramir import chart_watch
+
+        if args.dry_run:
+            return 0   # a manual dry run never waits
+        watch = os.environ.get("FARAMIR_CHART_WATCH") or os.path.join(os.path.dirname(__file__), "..", "out",
+                                                                      "chart_watch.json")
+        today = date.today()
+        if chart_watch.delivered(watch, today):
+            logger.info("Today's cards were already delivered; nothing to wait for")
+            return 0
+        ready, why = chart_watch.wait(today - timedelta(days=1), watch)
+        logger.info("Chart %s: %s", "ready" if ready else "not ready (a later trigger tries again)", why)
+        return 0
 
     ctx = runtime.new_context(dry_run=args.dry_run, fixtures_dir=args.fixtures, out_root=args.out_root)
     ok, why = ctx.may_run()

@@ -1,0 +1,205 @@
+{
+ "_about": "US average movie ticket price by year, used only to restate older films' grosses in today's dollars (faramir/inflation.py). Attendance-style adjustment: gross x (reference price / price in the film's release year). The same method Box Office Mojo uses for its adjusted all-time list.",
+ "reference": {
+  "year": 2024,
+  "price": 11.31,
+  "source": "The Numbers market summary, 'Movie theater ticket prices rose 3% to $11.31 in 2024' (2023: $10.94)",
+  "note": "Update when a full-year 2025 average from NATO / Box Office Mojo / The Numbers is verified. A 2025 figure of $13.29 circulates (Comscore, standard tickets) but its primary source was not found."
+ },
+ "first_year": 1955,
+ "sources": {
+  "box_office_mojo": "Box Office Mojo yearly average ticket price, 1980-2015, as compiled in https://gist.github.com/tophtucker/83a90b326c547f65cdee (boxoffice.tsv); retrieved 2026-11-03",
+  "cheapism": "Cheapism, as printed by Mental Floss, https://www.mentalfloss.com/entertainment/movies/how-much-movie-ticket-cost-year-you-were-born; retrieved 2026-11-03. Secondary; matches Box Office Mojo from 1980 on"
+ },
+ "no_price_before_first_year": "Films released before 1955 have no verified price: they are left out of comparisons rather than shown in unadjusted dollars.",
+ "prices": {
+  "1955": {
+   "price": 0.54,
+   "source": "cheapism"
+  },
+  "1956": {
+   "price": 0.59,
+   "source": "cheapism"
+  },
+  "1957": {
+   "price": 0.63,
+   "source": "cheapism"
+  },
+  "1958": {
+   "price": 0.68,
+   "source": "cheapism"
+  },
+  "1959": {
+   "price": 0.72,
+   "source": "cheapism"
+  },
+  "1960": {
+   "price": 0.75,
+   "source": "cheapism"
+  },
+  "1961": {
+   "price": 0.79,
+   "source": "cheapism"
+  },
+  "1962": {
+   "price": 0.82,
+   "source": "cheapism"
+  },
+  "1963": {
+   "price": 0.86,
+   "source": "cheapism"
+  },
+  "1964": {
+   "price": 0.95,
+   "source": "cheapism"
+  },
+  "1965": {
+   "price": 1.04,
+   "source": "cheapism"
+  },
+  "1966": {
+   "price": 1.13,
+   "source": "cheapism"
+  },
+  "1967": {
+   "price": 1.22,
+   "source": "cheapism"
+  },
+  "1968": {
+   "price": 1.33,
+   "source": "cheapism"
+  },
+  "1969": {
+   "price": 1.44,
+   "source": "cheapism"
+  },
+  "1970": {
+   "price": 1.54,
+   "source": "cheapism"
+  },
+  "1971": {
+   "price": 1.65,
+   "source": "cheapism"
+  },
+  "1972": {
+   "price": 1.73,
+   "source": "cheapism"
+  },
+  "1973": {
+   "price": 1.81,
+   "source": "cheapism"
+  },
+  "1974": {
+   "price": 1.89,
+   "source": "cheapism"
+  },
+  "1975": {
+   "price": 2.03,
+   "source": "cheapism"
+  },
+  "1976": {
+   "price": 2.13,
+   "source": "cheapism"
+  },
+  "1977": {
+   "price": 2.23,
+   "source": "cheapism"
+  },
+  "1978": {
+   "price": 2.34,
+   "source": "cheapism"
+  },
+  "1979": {
+   "price": 2.47,
+   "source": "cheapism"
+  },
+  "1980": {
+   "price": 2.69,
+   "source": "box_office_mojo"
+  },
+  "1981": {
+   "price": 2.78,
+   "source": "box_office_mojo"
+  },
+  "1982": {
+   "price": 2.94,
+   "source": "box_office_mojo"
+  },
+  "1983": {
+   "price": 3.15,
+   "source": "box_office_mojo"
+  },
+  "1984": {
+   "price": 3.36,
+   "source": "box_office_mojo"
+  },
+  "1985": {
+   "price": 3.55,
+   "source": "box_office_mojo"
+  },
+  "1986": {
+   "price": 3.71,
+   "source": "box_office_mojo"
+  },
+  "1987": {
+   "price": 3.91,
+   "source": "box_office_mojo"
+  },
+  "1988": {
+   "price": 4.11,
+   "source": "box_office_mojo"
+  },
+  "1989": {
+   "price": 3.97,
+   "source": "box_office_mojo"
+  },
+  "1990": {
+   "price": 4.23,
+   "source": "box_office_mojo"
+  },
+  "1991": {
+   "price": 4.21,
+   "source": "box_office_mojo"
+  },
+  "1992": {
+   "price": 4.15,
+   "source": "box_office_mojo"
+  },
+  "1993": {
+   "price": 4.14,
+   "source": "box_office_mojo"
+  },
+  "1994": {
+   "price": 4.18,
+   "source": "box_office_mojo"
+  },
+  "1995": {
+   "price": 4.35,
+   "source": "box_office_mojo"
+  },
+  "1996": {
+   "price": 4.42,
+   "source": "box_office_mojo"
+  },
+  "1997": {
+   "price": 4.59,
+   "source": "box_office_mojo"
+  },
+  "1998": {
+   "price": 4.69,
+   "source": "box_office_mojo"
+  },
+  "1999": {
+   "price": 5.08,
+   "source": "box_office_mojo"
+  },
+  "2000": {
+   "price": 5.39,
+   "source": "box_office_mojo"
+  },
+  "2001": {
+   "price": 5.66,
+   "source": "box_office_mojo"
+  }
+ }
+}

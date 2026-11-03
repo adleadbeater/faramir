@@ -176,7 +176,14 @@ def _degraded_copy(tmp):
     from faramir.matcher import find_candidates
 
     active = {"tmdb_id": 5001, "domestic_today": 152_000_000, "domestic_yesterday": 140_000_000}
-    cands = find_candidates(active, build_index(data["films"]), data["films"])
+    # classic-era comps are compared in today's dollars (faramir.inflation), as the production run does
+    import copy
+    from datetime import date
+
+    from faramir import inflation
+    seen = copy.deepcopy(data["films"])
+    inflation.apply(seen, date(2026, 10, 23))
+    cands = find_candidates(active, build_index(seen), seen)
     target_id = next(c["comp_tmdb_id"] for c in cands if c["axis"] == "domestic"
                      and c["comp"]["worldwide_status"] == "reported")
     target = next(f for f in data["films"] if f["tmdb_id"] == target_id)

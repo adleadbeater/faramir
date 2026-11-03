@@ -13,6 +13,7 @@ can't be dated), ``stale_figure`` (unchanged ≥ 2 days), ``not_crossed``, ``pro
 
 from __future__ import annotations
 
+from faramir import inflation
 from faramir.corpus import reported
 from faramir.events.schema import Event
 from faramir.strategies.common import (DetectorResult, all_time_rank, axis_source, comp_recognized, comp_ref, comp_strength,
@@ -68,8 +69,11 @@ def detect(film: dict, candidates: list[dict], corpus: list[dict], data_date: st
             if obscure:
                 strength = 0.35   # true, but readers won't know the film it passed
             reason = (f"{film_ref(film)['title']} passed {comp.get('title')} ({comp.get('release_year')}) on the {axis} axis: "
-                      f"{money(prev)} → {money(cur)} against {money(value)} (lifetime, corpus as of {gross_as_of}).")
-            codes = ["crossed_comp_lifetime"] + [f"category:{x}" for x in cats] + (["obscure_comparison"] if obscure else [])
+                      f"{money(prev)} → {money(cur)} against {money(value)} (lifetime, corpus as of {gross_as_of})."
+                      + (f" {inflation.method_note(comp, axis)}" if comp.get("adjusted") else ""))
+            codes = (["crossed_comp_lifetime"] + [f"category:{x}" for x in cats] + (["obscure_comparison"] if obscure else [])
+                     + (["classic_era"] if comp.get("era") else []))
+            c = {**c, "era": comp.get("era")}
         else:
             cats = []
             strength = threshold_strength(value)

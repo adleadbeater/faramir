@@ -16,8 +16,10 @@ COLD_CUTOFF. It never waits past HARD_CUTOFF.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -30,6 +32,15 @@ COLD_SHARE = 0.75        # cold start: the old rule
 MIN_ROWS = 10
 COLD_CUTOFF = 14 * 60 + 30
 HARD_CUTOFF = 15 * 60    # never wait past 3pm
+
+# Waiting inside one job (wait()), not on GitHub's 15-minute cron: GitHub drops most scheduled triggers
+# (2026-10-30..11-01: two runs a day, the first at 1:53-2:28pm ET, the next 3.5 hours later), so a chart that
+# was complete at the first check was posted at 5:45pm. One job now polls every POLL_SECONDS from EARLIEST.
+POLL_SECONDS = 300
+EARLIEST = 10 * 60       # the chart starts filling around 10am; no polling before this
+MAX_WAIT = 300           # minutes one waiting job may run; a later trigger's job takes over
+GIVE_UP = 17 * 60        # chart still not posted at 5pm: give up for the day
+SETTLE = 45              # [CAL] minutes with no change to the top films before a chart with no history is "ready"
 
 
 def now_minutes(now: datetime | None = None) -> int:
@@ -66,6 +77,12 @@ def record(store: dict, day: date, minute: int, films: list[tuple[str, int]]) ->
     """One check of ``day``'s chart at ``minute`` (ET minutes after midnight): films as (title, gross)."""
     d = store.setdefault("days", {}).setdefault(day.isoformat(), {"checks": [], "first_seen": {}, "gross": {}})
     d["checks"].append([f"{minute // 60:02d}:{minute % 60:02d}", len(films)])
+    # when the chart last changed (film count or a top-film gross): [time, fingerprint] at each change only
+    top = sorted(films, key=lambda f: -(f[1] or 0))[:TOP]
+    fp = hashlib.sha1(json.dumps([len(films), top]).encode()).hexdigest()[:10]
+    changed = d.setdefault("changed", [])
+    if not changed or changed[-1][1] != fp:
+        changed.append([f"{minute // 60:02d}:{minute % 60:02d}", fp])
     for title, gross in films:
         d["first_seen"].setdefault(title, f"{minute // 60:02d}:{minute % 60:02d}")
         d["gross"][title] = gross
@@ -74,7 +91,9 @@ def record(store: dict, day: date, minute: int, films: list[tuple[str, int]]) ->
 def expectations(store: dict, day: date) -> dict[str, int]:
     """Films expected on ``day``'s chart, and by when: the notable films that reported same-day on the
     last watched day before it, each at the latest time it first appeared over its last LOOKBACK days."""
-    days = sorted(k for k in store.get("days", {}) if k < day.isoformat())
+    # days recorded before 2026-11-02 have no "changed" log: their first-seen times are the times of two sparse
+    # cron checks, not when a film appeared, so they are never learned from
+    days = sorted(k for k in store.get("days", {}) if k < day.isoformat() and "changed" in store["days"][k])
     if not days:
         return {}
     last = store["days"][days[-1]]
@@ -87,6 +106,12 @@ def expectations(store: dict, day: date) -> dict[str, int]:
     return out
 
 
+def unchanged_for(store: dict, day: date, minute: int) -> int | None:
+    """Minutes the day's chart (film count and top-film grosses) has been exactly as last seen, as of ``minute``."""
+    changed = store.get("days", {}).get(day.isoformat(), {}).get("changed")
+    return minute - _min(changed[-1][0]) if changed else None
+
+
 def decide(store: dict, day: date, minute: int, present: list[str], day_before_rows: int = 0) -> tuple[bool, str]:
     """Is ``day``'s chart ready at ``minute``, with ``present`` films on it? Returns (ready, why); a
     ready-but-incomplete chart's why starts with "partial"."""
@@ -97,6 +122,9 @@ def decide(store: dict, day: date, minute: int, present: list[str], day_before_r
         need = max(MIN_ROWS, round(COLD_SHARE * day_before_rows)) if day_before_rows else MIN_ROWS
         if len(present) >= need:
             return True, f"{len(present)} films"
+        quiet = unchanged_for(store, day, minute)
+        if quiet is not None and quiet >= SETTLE and len(present) >= MIN_ROWS:
+            return True, f"{len(present)} films; chart unchanged for {quiet} minutes"
         why = f"{len(present)} films so far (the day before had {day_before_rows}); no reporting history yet"
         return (True, f"partial: {why}") if minute >= COLD_CUTOFF else (False, f"partial: {why}")
     have = set(present)
@@ -143,6 +171,27 @@ def check(day: date, path: str, now: datetime | None = None, fetch=films_on_char
     else:
         minute, before_rows = HARD_CUTOFF, len(fetch(day - timedelta(days=1)))
     return decide(store, day, minute, [t for t, _ in films], before_rows)
+
+
+def wait(day: date, path: str, now_fn=None, sleep=time.sleep, fetch=films_on_chart,
+         poll: int = POLL_SECONDS) -> tuple[bool, str]:
+    """Poll ``day``'s chart until it is ready (check()), the 5pm give-up, or MAX_WAIT minutes. Returns
+    (ready, why). A past day is checked once: there is nothing to wait for."""
+    now_fn = now_fn or (lambda: datetime.now(ET))
+    start = now_fn()
+    if day != start.astimezone(ET).date() - timedelta(days=1):
+        return check(day, path, now=start, fetch=fetch)
+    why = "not started"
+    while True:
+        now = now_fn()
+        minute = now_minutes(now)
+        if minute >= EARLIEST:
+            ready, why = check(day, path, now=now, fetch=fetch)
+            if ready or minute >= GIVE_UP:
+                return ready, why
+        if (now - start).total_seconds() / 60 >= MAX_WAIT:
+            return False, why
+        sleep(poll if minute >= EARLIEST else (EARLIEST - minute) * 60)
 
 
 def delivered(path: str, run_date: date) -> str | None:

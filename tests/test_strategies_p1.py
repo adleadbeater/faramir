@@ -166,15 +166,23 @@ BIGGER = [comp(tmdb_id=900 + i, imdb_id=f"tt9{i:06d}", domestic_lifetime=400_000
 
 
 @pytest.mark.parametrize("kw, ckw, code", [
-    ({}, dict(domestic_lifetime=155_000_000), "not_meaningful"),                               # unrelated mid-tier
+    ({}, dict(domestic_lifetime=155_000_000), "not_meaningful"),                               # unrelated and unknown
     (dict(collection_id=7, domestic_yesterday=149_990_000), dict(domestic_lifetime=164_000_000, collection_id=7), "pace_insufficient"),
     (dict(collection_id=7, domestic_yesterday=150_000_000, dom_stale_days=1), dict(domestic_lifetime=155_000_000, collection_id=7), "no_pace"),
     (dict(collection_id=7, dom_stale_days=2), dict(domestic_lifetime=155_000_000, collection_id=7), "stale_figure"),
 ])
 def test_chase_negative_cases(kw, ckw, code):
-    r = _chase(film(**kw), [comp(**ckw)] + BIGGER)  # 100 bigger films: the comp is not all-time top 100
+    r = _chase(film(**kw), [comp(**ckw)] + BIGGER * 4)  # 400 bigger films: the comp is neither top 100 nor widely known
     assert not [e for e in r.events if e.axis == "domestic"]
     assert code in [x["reason_code"] for x in r.rejected if x["axis"] == "domestic"]
+
+
+def test_chase_keeps_an_unrelated_but_known_comp_only_as_a_weak_fallback():
+    # all-time rank 101-300: readers know it, nothing links the two films. Below the ranker's minimum strength, it
+    # reaches a card only when nothing stronger fills the daily floor of two cards (2026-11-03).
+    r = _chase(film(), [comp(domestic_lifetime=155_000_000)] + BIGGER)
+    (e,) = [x for x in r.events if x.axis == "domestic"]
+    assert e.strength == 0.3 and e.candidate["fallback"] is True and "fallback_weak_comparison" in e.reason_codes
 
 
 def test_chase_never_fires_on_an_already_passed_comp():
