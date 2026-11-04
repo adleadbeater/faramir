@@ -40,6 +40,7 @@ POLL_SECONDS = 300
 EARLIEST = 10 * 60       # the chart starts filling around 10am; no polling before this
 MAX_WAIT = 300           # minutes one waiting job may run; a later trigger's job takes over
 GIVE_UP = 17 * 60        # chart still not posted at 5pm: give up for the day
+TRUSTED_FIRST_CHECK = EARLIEST + 90   # a day's first-seen times teach only if its first check was by 11:30am ET
 SETTLE = 45              # [CAL] minutes with no change to the top films before a chart with no history is "ready"
 
 
@@ -93,7 +94,11 @@ def expectations(store: dict, day: date) -> dict[str, int]:
     last watched day before it, each at the latest time it first appeared over its last LOOKBACK days."""
     # days recorded before 2026-11-02 have no "changed" log: their first-seen times are the times of two sparse
     # cron checks, not when a film appeared, so they are never learned from
-    days = sorted(k for k in store.get("days", {}) if k < day.isoformat() and "changed" in store["days"][k])
+    # and a day first looked at after TRUSTED_FIRST_CHECK has the same flaw: every film already on the chart at the
+    # first look is stamped with that look's time (the 2026-11-02 record, first checked at 4:48pm, said every film
+    # "usually reports by 4:48pm" and made the next morning's wait run to its 3pm cutoff)
+    days = sorted(k for k in store.get("days", {}) if k < day.isoformat() and "changed" in store["days"][k]
+                  and store["days"][k].get("checks") and _min(store["days"][k]["checks"][0][0]) <= TRUSTED_FIRST_CHECK)
     if not days:
         return {}
     last = store["days"][days[-1]]

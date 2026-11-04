@@ -22,6 +22,7 @@ def history(*days):
     """Watched days: each a list of (title, gross, first-seen minute)."""
     store = {"days": {}}
     for d, films in days:
+        cw.record(store, d, 10 * 60 + 15, [])   # watched from the start of the polling window, as the waiting job does
         for title, gross, minute in films:
             cw.record(store, d, minute, [(title, gross)])
     return store
@@ -152,6 +153,15 @@ def test_days_recorded_by_the_old_sparse_checks_are_never_learned_from():
     assert cw.expectations(legacy, DAY) == {}
     fresh = history(YESTERDAY)
     assert "Clayface" in cw.expectations(fresh, DAY)
+
+
+def test_a_day_first_looked_at_late_in_the_afternoon_is_never_learned_from():
+    late = {"days": {"2026-10-28": {"checks": [["16:48", 27]], "changed": [["16:48", "x"]],
+                                    "first_seen": {"Clayface": "16:48"}, "gross": {"Clayface": 2 * BIG}}}}
+    assert cw.expectations(late, DAY) == {}
+    early = {"days": {"2026-10-28": {"checks": [["10:15", 9]], "changed": [["10:15", "x"]],
+                                     "first_seen": {"Clayface": "10:15"}, "gross": {"Clayface": 2 * BIG}}}}
+    assert cw.expectations(early, DAY) == {"Clayface": 10 * 60 + 15}
 
 
 def test_wait_polls_every_five_minutes_and_stops_as_soon_as_the_chart_is_ready(tmp_path):
