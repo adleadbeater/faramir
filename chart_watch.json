@@ -1247,6 +1247,328 @@
     "You Can See Everything": 1288076,
     "Your Mother, Your Mother, Your Mother": 10664
    }
+  },
+  "2026-11-06": {
+   "changed": [
+    [
+     "10:15",
+     "15a5c42cfe"
+    ],
+    [
+     "10:20",
+     "f9b619a217"
+    ],
+    [
+     "10:35",
+     "04a0a5cab7"
+    ],
+    [
+     "10:40",
+     "a6150c6d1f"
+    ],
+    [
+     "10:55",
+     "0968bcf21c"
+    ],
+    [
+     "11:00",
+     "0e1ea63609"
+    ],
+    [
+     "11:05",
+     "34cd28a4dd"
+    ],
+    [
+     "11:15",
+     "478778cf81"
+    ]
+   ],
+   "checks": [
+    [
+     "10:15",
+     9
+    ],
+    [
+     "10:20",
+     10
+    ],
+    [
+     "10:25",
+     10
+    ],
+    [
+     "10:30",
+     10
+    ],
+    [
+     "10:35",
+     12
+    ],
+    [
+     "10:40",
+     15
+    ],
+    [
+     "10:45",
+     15
+    ],
+    [
+     "10:50",
+     15
+    ],
+    [
+     "10:55",
+     16
+    ],
+    [
+     "11:00",
+     18
+    ],
+    [
+     "11:05",
+     23
+    ],
+    [
+     "11:10",
+     23
+    ],
+    [
+     "11:15",
+     24
+    ],
+    [
+     "11:20",
+     24
+    ],
+    [
+     "11:25",
+     24
+    ],
+    [
+     "11:30",
+     24
+    ],
+    [
+     "11:35",
+     24
+    ],
+    [
+     "11:40",
+     24
+    ],
+    [
+     "11:45",
+     24
+    ],
+    [
+     "11:50",
+     24
+    ],
+    [
+     "11:55",
+     24
+    ],
+    [
+     "12:00",
+     24
+    ],
+    [
+     "12:05",
+     24
+    ],
+    [
+     "12:10",
+     24
+    ],
+    [
+     "12:16",
+     24
+    ],
+    [
+     "12:21",
+     24
+    ],
+    [
+     "12:26",
+     24
+    ],
+    [
+     "12:31",
+     24
+    ],
+    [
+     "12:36",
+     24
+    ],
+    [
+     "12:41",
+     24
+    ],
+    [
+     "12:46",
+     24
+    ],
+    [
+     "12:51",
+     24
+    ],
+    [
+     "12:56",
+     24
+    ],
+    [
+     "13:01",
+     24
+    ],
+    [
+     "13:06",
+     24
+    ],
+    [
+     "13:11",
+     24
+    ],
+    [
+     "13:16",
+     24
+    ],
+    [
+     "13:21",
+     24
+    ],
+    [
+     "13:26",
+     24
+    ],
+    [
+     "13:31",
+     24
+    ],
+    [
+     "13:36",
+     24
+    ],
+    [
+     "13:41",
+     24
+    ],
+    [
+     "13:46",
+     24
+    ],
+    [
+     "13:51",
+     24
+    ],
+    [
+     "13:56",
+     24
+    ],
+    [
+     "14:01",
+     24
+    ],
+    [
+     "14:06",
+     24
+    ],
+    [
+     "14:11",
+     24
+    ],
+    [
+     "14:16",
+     24
+    ],
+    [
+     "14:21",
+     24
+    ],
+    [
+     "14:26",
+     24
+    ],
+    [
+     "14:31",
+     24
+    ],
+    [
+     "14:36",
+     24
+    ],
+    [
+     "14:41",
+     24
+    ],
+    [
+     "14:46",
+     24
+    ],
+    [
+     "14:51",
+     24
+    ],
+    [
+     "14:56",
+     24
+    ],
+    [
+     "15:01",
+     24
+    ]
+   ],
+   "first_seen": {
+    "Clayface": "10:35",
+    "Club Kid": "10:15",
+    "Drummer Boy": "10:15",
+    "Everest: The Other Side": "10:15",
+    "Forgotten Island": "10:40",
+    "Godzilla Minus Zero": "10:55",
+    "Heart of the Beast": "10:15",
+    "Heated Rivalry": "11:15",
+    "Jimmy": "10:20",
+    "Other Mommy": "10:40",
+    "Paging Hezbollah": "11:00",
+    "Primetime": "10:15",
+    "Ramayana: Rise of a Legend": "11:05",
+    "Resident Evil": "11:05",
+    "Sense and Sensibility": "10:40",
+    "Sight & Sound Presents: JOSHUA Live!": "11:05",
+    "Street Fighter": "10:15",
+    "The Cat in the Hat": "10:35",
+    "The Only Living Pickpocket in New York": "11:05",
+    "Whalefall": "10:15",
+    "Wicker": "11:05",
+    "Wild Horse Nine": "10:15",
+    "Wildwood": "11:00",
+    "You Can See Everything": "10:15"
+   },
+   "gross": {
+    "Clayface": 2025000,
+    "Club Kid": 175398,
+    "Drummer Boy": 3533127,
+    "Everest: The Other Side": 90000,
+    "Forgotten Island": 12000,
+    "Godzilla Minus Zero": 14500000,
+    "Heart of the Beast": 335000,
+    "Heated Rivalry": 420000,
+    "Jimmy": 832477,
+    "Other Mommy": 460000,
+    "Paging Hezbollah": 1577,
+    "Primetime": 15675,
+    "Ramayana: Rise of a Legend": 2400000,
+    "Resident Evil": 375000,
+    "Sense and Sensibility": 160000,
+    "Sight & Sound Presents: JOSHUA Live!": 28968,
+    "Street Fighter": 560000,
+    "The Cat in the Hat": 6000000,
+    "The Only Living Pickpocket in New York": 248000,
+    "Whalefall": 75000,
+    "Wicker": 1050000,
+    "Wild Horse Nine": 2475000,
+    "Wildwood": 1814477,
+    "You Can See Everything": 2557082
+   }
   }
  },
  "delivered": {
