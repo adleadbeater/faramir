@@ -1573,6 +1573,208 @@
     "Wildwood": 1814477,
     "You Can See Everything": 2557082
    }
+  },
+  "2026-11-07": {
+   "changed": [
+    [
+     "10:15",
+     "e6278521f3"
+    ],
+    [
+     "10:25",
+     "77ac9442c7"
+    ],
+    [
+     "10:35",
+     "8586c6aeb4"
+    ],
+    [
+     "10:40",
+     "1dd0064d06"
+    ],
+    [
+     "10:50",
+     "e3fc4b06cf"
+    ],
+    [
+     "10:55",
+     "96ea741a3b"
+    ],
+    [
+     "11:00",
+     "088c42f5a7"
+    ],
+    [
+     "11:05",
+     "87e70d854b"
+    ],
+    [
+     "11:15",
+     "5d4c3a831c"
+    ],
+    [
+     "11:20",
+     "cd4c527b45"
+    ],
+    [
+     "11:25",
+     "be8e87ff1a"
+    ],
+    [
+     "11:30",
+     "24e416bb0f"
+    ],
+    [
+     "11:35",
+     "d1612aee95"
+    ],
+    [
+     "11:40",
+     "01c7a84dc6"
+    ]
+   ],
+   "checks": [
+    [
+     "10:15",
+     4
+    ],
+    [
+     "10:20",
+     4
+    ],
+    [
+     "10:25",
+     6
+    ],
+    [
+     "10:30",
+     6
+    ],
+    [
+     "10:35",
+     8
+    ],
+    [
+     "10:40",
+     9
+    ],
+    [
+     "10:45",
+     9
+    ],
+    [
+     "10:50",
+     13
+    ],
+    [
+     "10:55",
+     14
+    ],
+    [
+     "11:00",
+     19
+    ],
+    [
+     "11:05",
+     21
+    ],
+    [
+     "11:10",
+     21
+    ],
+    [
+     "11:15",
+     25
+    ],
+    [
+     "11:20",
+     26
+    ],
+    [
+     "11:25",
+     27
+    ],
+    [
+     "11:30",
+     28
+    ],
+    [
+     "11:35",
+     30
+    ],
+    [
+     "11:40",
+     32
+    ]
+   ],
+   "first_seen": {
+    "Clayface": "10:25",
+    "Club Kid": "10:15",
+    "Drummer Boy": "10:15",
+    "Everest: The Other Side": "11:00",
+    "Fjord": "10:50",
+    "Forgotten Island": "11:00",
+    "Godzilla Minus Zero": "10:50",
+    "Heart of the Beast": "10:35",
+    "Heated Rivalry": "11:20",
+    "I Play Rocky": "11:15",
+    "Jimmy": "11:35",
+    "La bola negra": "11:05",
+    "Mouse": "11:40",
+    "Naza": "10:50",
+    "Once Upon a Time in Harlem": "10:50",
+    "Other Mommy": "10:40",
+    "Paging Hezbollah": "11:35",
+    "Primetime": "10:15",
+    "Ramayana: Rise of a Legend": "11:15",
+    "Resident Evil": "11:15",
+    "Sense and Sensibility": "11:00",
+    "Sight & Sound Presents: JOSHUA Live!": "11:30",
+    "Street Fighter": "10:35",
+    "The Cat in the Hat": "10:25",
+    "The Mosquito Bowl": "11:05",
+    "The Only Living Pickpocket in New York": "11:15",
+    "Verity": "11:25",
+    "Whalefall": "11:00",
+    "Wicker": "11:40",
+    "Wild Horse Nine": "11:00",
+    "Wildwood": "10:55",
+    "You Can See Everything": "10:15"
+   },
+   "gross": {
+    "Clayface": 2900000,
+    "Club Kid": 113255,
+    "Drummer Boy": 3029424,
+    "Everest: The Other Side": 135000,
+    "Fjord": 39500,
+    "Forgotten Island": 46000,
+    "Godzilla Minus Zero": 9450000,
+    "Heart of the Beast": 535000,
+    "Heated Rivalry": 350000,
+    "I Play Rocky": 100423,
+    "Jimmy": 668094,
+    "La bola negra": 340000,
+    "Mouse": 11910,
+    "Naza": 17003,
+    "Once Upon a Time in Harlem": 25173,
+    "Other Mommy": 680000,
+    "Paging Hezbollah": 3000,
+    "Primetime": 18183,
+    "Ramayana: Rise of a Legend": 3825000,
+    "Resident Evil": 563000,
+    "Sense and Sensibility": 210000,
+    "Sight & Sound Presents: JOSHUA Live!": 38058,
+    "Street Fighter": 960000,
+    "The Cat in the Hat": 8500000,
+    "The Mosquito Bowl": 41000,
+    "The Only Living Pickpocket in New York": 330000,
+    "Verity": 256000,
+    "Whalefall": 115000,
+    "Wicker": 1365000,
+    "Wild Horse Nine": 2000000,
+    "Wildwood": 3074539,
+    "You Can See Everything": 3503202
+   }
   }
  },
  "delivered": {
