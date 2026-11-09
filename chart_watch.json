@@ -1779,6 +1779,88 @@
     "Wildwood": 3074539,
     "You Can See Everything": 3503202
    }
+  },
+  "2026-11-08": {
+   "changed": [
+    [
+     "10:15",
+     "bb7320256a"
+    ]
+   ],
+   "checks": [
+    [
+     "10:15",
+     32
+    ]
+   ],
+   "first_seen": {
+    "Clayface": "10:15",
+    "Club Kid": "10:15",
+    "Drummer Boy": "10:15",
+    "Everest: The Other Side": "10:15",
+    "Fjord": "10:15",
+    "Forgotten Island": "10:15",
+    "Godzilla Minus Zero": "10:15",
+    "Heart of the Beast": "10:15",
+    "Heated Rivalry": "10:15",
+    "I Play Rocky": "10:15",
+    "Jimmy": "10:15",
+    "La bola negra": "10:15",
+    "Mouse": "10:15",
+    "Naza": "10:15",
+    "Once Upon a Time in Harlem": "10:15",
+    "Other Mommy": "10:15",
+    "Paging Hezbollah": "10:15",
+    "Primetime": "10:15",
+    "Ramayana: Rise of a Legend": "10:15",
+    "Resident Evil": "10:15",
+    "Sense and Sensibility": "10:15",
+    "Sight & Sound Presents: JOSHUA Live!": "10:15",
+    "Street Fighter": "10:15",
+    "The Cat in the Hat": "10:15",
+    "The Mosquito Bowl": "10:15",
+    "The Only Living Pickpocket in New York": "10:15",
+    "Verity": "10:15",
+    "Whalefall": "10:15",
+    "Wicker": "10:15",
+    "Wild Horse Nine": "10:15",
+    "Wildwood": "10:15",
+    "You Can See Everything": "10:15"
+   },
+   "gross": {
+    "Clayface": 1800000,
+    "Club Kid": 101930,
+    "Drummer Boy": 2750000,
+    "Everest: The Other Side": 95000,
+    "Fjord": 31600,
+    "Forgotten Island": 34000,
+    "Godzilla Minus Zero": 7560000,
+    "Heart of the Beast": 345000,
+    "Heated Rivalry": 630000,
+    "I Play Rocky": 80338,
+    "Jimmy": 532165,
+    "La bola negra": 320000,
+    "Mouse": 10716,
+    "Naza": 12109,
+    "Once Upon a Time in Harlem": 21000,
+    "Other Mommy": 410000,
+    "Paging Hezbollah": 3500,
+    "Primetime": 14546,
+    "Ramayana: Rise of a Legend": 2410000,
+    "Resident Evil": 362000,
+    "Sense and Sensibility": 160000,
+    "Sight & Sound Presents: JOSHUA Live!": 30446,
+    "Street Fighter": 630000,
+    "The Cat in the Hat": 5400000,
+    "The Mosquito Bowl": 31000,
+    "The Only Living Pickpocket in New York": 222000,
+    "Verity": 167000,
+    "Whalefall": 80000,
+    "Wicker": 935000,
+    "Wild Horse Nine": 1525000,
+    "Wildwood": 2110984,
+    "You Can See Everything": 2802562
+   }
   }
  },
  "delivered": {
