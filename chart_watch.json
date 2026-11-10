@@ -1865,6 +1865,112 @@
     "Wildwood": 2110984,
     "You Can See Everything": 2802562
    }
+  },
+  "2026-11-09": {
+   "changed": [
+    [
+     "10:40",
+     "502bb3c1e5"
+    ],
+    [
+     "11:11",
+     "480cc617ca"
+    ],
+    [
+     "11:41",
+     "781af3aa63"
+    ]
+   ],
+   "checks": [
+    [
+     "10:40",
+     3
+    ],
+    [
+     "10:45",
+     3
+    ],
+    [
+     "10:50",
+     3
+    ],
+    [
+     "10:55",
+     3
+    ],
+    [
+     "11:00",
+     3
+    ],
+    [
+     "11:06",
+     3
+    ],
+    [
+     "11:11",
+     7
+    ],
+    [
+     "11:16",
+     7
+    ],
+    [
+     "11:21",
+     7
+    ],
+    [
+     "11:26",
+     7
+    ],
+    [
+     "11:31",
+     7
+    ],
+    [
+     "11:36",
+     7
+    ],
+    [
+     "11:41",
+     8
+    ],
+    [
+     "11:46",
+     8
+    ],
+    [
+     "11:51",
+     8
+    ],
+    [
+     "11:56",
+     8
+    ],
+    [
+     "12:01",
+     8
+    ]
+   ],
+   "first_seen": {
+    "Clayface": "11:11",
+    "Drummer Boy": "11:41",
+    "Godzilla Minus Zero": "11:11",
+    "Paging Hezbollah": "11:11",
+    "Ramayana: Rise of a Legend": "10:40",
+    "Resident Evil": "10:40",
+    "The Cat in the Hat": "11:11",
+    "The Only Living Pickpocket in New York": "10:40"
+   },
+   "gross": {
+    "Clayface": 615000,
+    "Drummer Boy": 706856,
+    "Godzilla Minus Zero": 2084542,
+    "Paging Hezbollah": 1081,
+    "Ramayana: Rise of a Legend": 1420000,
+    "Resident Evil": 130000,
+    "The Cat in the Hat": 800000,
+    "The Only Living Pickpocket in New York": 95000
+   }
   }
  },
  "delivered": {
