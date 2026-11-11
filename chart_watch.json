@@ -1975,6 +1975,122 @@
     "The Cat in the Hat": 800000,
     "The Only Living Pickpocket in New York": 95000
    }
+  },
+  "2026-11-10": {
+   "changed": [
+    [
+     "10:35",
+     "f9412c8336"
+    ],
+    [
+     "10:40",
+     "50c4629aba"
+    ],
+    [
+     "10:45",
+     "3516dda69c"
+    ],
+    [
+     "11:20",
+     "441496af24"
+    ]
+   ],
+   "checks": [
+    [
+     "10:35",
+     1
+    ],
+    [
+     "10:40",
+     3
+    ],
+    [
+     "10:45",
+     6
+    ],
+    [
+     "10:50",
+     6
+    ],
+    [
+     "10:55",
+     6
+    ],
+    [
+     "11:00",
+     6
+    ],
+    [
+     "11:05",
+     6
+    ],
+    [
+     "11:10",
+     6
+    ],
+    [
+     "11:15",
+     6
+    ],
+    [
+     "11:20",
+     7
+    ],
+    [
+     "11:25",
+     7
+    ],
+    [
+     "11:30",
+     7
+    ],
+    [
+     "11:35",
+     7
+    ],
+    [
+     "11:40",
+     7
+    ],
+    [
+     "11:45",
+     7
+    ],
+    [
+     "11:50",
+     7
+    ],
+    [
+     "11:55",
+     7
+    ],
+    [
+     "12:00",
+     7
+    ],
+    [
+     "12:06",
+     7
+    ]
+   ],
+   "first_seen": {
+    "Clayface": "10:40",
+    "Godzilla Minus Zero": "10:35",
+    "Paging Hezbollah": "11:20",
+    "Ramayana: Rise of a Legend": "10:45",
+    "Resident Evil": "10:45",
+    "The Cat in the Hat": "10:40",
+    "The Only Living Pickpocket in New York": "10:45"
+   },
+   "gross": {
+    "Clayface": 1040000,
+    "Godzilla Minus Zero": 3283887,
+    "Paging Hezbollah": 1137,
+    "Ramayana: Rise of a Legend": 2050000,
+    "Resident Evil": 185000,
+    "The Cat in the Hat": 1800000,
+    "The Only Living Pickpocket in New York": 134000
+   }
   }
  },
  "delivered": {
