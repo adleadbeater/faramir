@@ -2095,6 +2095,70 @@
     "The Cat in the Hat": 1800000,
     "The Only Living Pickpocket in New York": 134000
    }
+  },
+  "2026-11-11": {
+   "changed": [
+    [
+     "10:25",
+     "9b35d93d09"
+    ],
+    [
+     "10:45",
+     "82a8b1312f"
+    ],
+    [
+     "10:55",
+     "63760bff87"
+    ]
+   ],
+   "checks": [
+    [
+     "10:25",
+     2
+    ],
+    [
+     "10:30",
+     2
+    ],
+    [
+     "10:35",
+     2
+    ],
+    [
+     "10:40",
+     2
+    ],
+    [
+     "10:45",
+     6
+    ],
+    [
+     "10:50",
+     6
+    ],
+    [
+     "10:55",
+     7
+    ]
+   ],
+   "first_seen": {
+    "Clayface": "10:25",
+    "Ghost Soldier": "10:45",
+    "Godzilla Minus Zero": "10:55",
+    "Ramayana: Rise of a Legend": "10:45",
+    "Resident Evil": "10:45",
+    "The Cat in the Hat": "10:25",
+    "The Only Living Pickpocket in New York": "10:45"
+   },
+   "gross": {
+    "Clayface": 1060000,
+    "Ghost Soldier": 2300000,
+    "Godzilla Minus Zero": 3110000,
+    "Ramayana: Rise of a Legend": 1855000,
+    "Resident Evil": 190000,
+    "The Cat in the Hat": 3450000,
+    "The Only Living Pickpocket in New York": 150000
+   }
   }
  },
  "delivered": {
