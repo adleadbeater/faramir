@@ -2163,6 +2163,112 @@
     "The Cat in the Hat": 3450000,
     "The Only Living Pickpocket in New York": 150000
    }
+  },
+  "2026-11-12": {
+   "changed": [
+    [
+     "10:35",
+     "b1587af311"
+    ],
+    [
+     "10:40",
+     "a5a37ad560"
+    ],
+    [
+     "10:45",
+     "4817673a5c"
+    ],
+    [
+     "10:50",
+     "27b7a4bc6a"
+    ],
+    [
+     "11:05",
+     "8a3742d5e0"
+    ],
+    [
+     "11:10",
+     "cbd44266e1"
+    ]
+   ],
+   "checks": [
+    [
+     "10:35",
+     3
+    ],
+    [
+     "10:40",
+     4
+    ],
+    [
+     "10:45",
+     6
+    ],
+    [
+     "10:50",
+     8
+    ],
+    [
+     "10:55",
+     8
+    ],
+    [
+     "11:00",
+     8
+    ],
+    [
+     "11:05",
+     11
+    ],
+    [
+     "11:10",
+     12
+    ],
+    [
+     "11:15",
+     12
+    ],
+    [
+     "11:21",
+     12
+    ],
+    [
+     "11:26",
+     12
+    ],
+    [
+     "11:31",
+     12
+    ]
+   ],
+   "first_seen": {
+    "Angel and the Badman": "10:50",
+    "Breeder": "10:35",
+    "Ghost Soldier": "11:05",
+    "Godzilla Minus Zero": "10:50",
+    "Jimmy": "10:45",
+    "Mouse": "10:35",
+    "Paging Hezbollah": "10:35",
+    "Ramayana: Rise of a Legend": "11:05",
+    "Resident Evil": "11:05",
+    "Runner": "10:45",
+    "The Only Living Pickpocket in New York": "10:40",
+    "Wildwood": "11:10"
+   },
+   "gross": {
+    "Angel and the Badman": 382,
+    "Breeder": 2746,
+    "Ghost Soldier": 800000,
+    "Godzilla Minus Zero": 1434302,
+    "Jimmy": 202528,
+    "Mouse": 8084,
+    "Paging Hezbollah": 726,
+    "Ramayana: Rise of a Legend": 885000,
+    "Resident Evil": 80000,
+    "Runner": 103,
+    "The Only Living Pickpocket in New York": 81464,
+    "Wildwood": 531075
+   }
   }
  },
  "delivered": {
