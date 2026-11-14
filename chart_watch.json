@@ -2273,6 +2273,144 @@
     "The Only Living Pickpocket in New York": 81464,
     "Wildwood": 531075
    }
+  },
+  "2026-11-13": {
+   "changed": [
+    [
+     "10:15",
+     "ad11245f4b"
+    ],
+    [
+     "10:25",
+     "b89945edeb"
+    ],
+    [
+     "10:30",
+     "6d5b4597c0"
+    ],
+    [
+     "10:35",
+     "4bcaa7660f"
+    ],
+    [
+     "10:45",
+     "29e045b7ab"
+    ],
+    [
+     "10:50",
+     "7affe0c6fe"
+    ],
+    [
+     "10:55",
+     "df5a684c30"
+    ],
+    [
+     "11:05",
+     "3f7e69e69a"
+    ],
+    [
+     "11:10",
+     "63c874af2e"
+    ]
+   ],
+   "checks": [
+    [
+     "10:15",
+     4
+    ],
+    [
+     "10:20",
+     4
+    ],
+    [
+     "10:25",
+     5
+    ],
+    [
+     "10:30",
+     8
+    ],
+    [
+     "10:35",
+     9
+    ],
+    [
+     "10:40",
+     9
+    ],
+    [
+     "10:45",
+     14
+    ],
+    [
+     "10:50",
+     16
+    ],
+    [
+     "10:55",
+     17
+    ],
+    [
+     "11:00",
+     17
+    ],
+    [
+     "11:05",
+     19
+    ],
+    [
+     "11:10",
+     22
+    ]
+   ],
+   "first_seen": {
+    "Bitter Christmas": "11:10",
+    "Club Kid": "10:15",
+    "Drummer Boy": "10:15",
+    "Ebenezer": "10:30",
+    "Everest: The Other Side": "10:45",
+    "Ghost Soldier": "11:05",
+    "Godzilla Minus Zero": "10:45",
+    "Heart of the Beast": "10:30",
+    "How to Rob a Bank": "10:55",
+    "Jimmy": "10:45",
+    "Other Mommy": "10:50",
+    "Primetime": "10:15",
+    "Ramayana: Rise of a Legend": "11:05",
+    "Resident Evil": "11:10",
+    "Sense and Sensibility": "10:50",
+    "Street Fighter": "10:30",
+    "The Only Living Pickpocket in New York": "11:10",
+    "Victorian Psycho": "10:25",
+    "Whalefall": "10:45",
+    "Wild Horse Nine": "10:45",
+    "Wildwood": "10:35",
+    "You Can See Everything": "10:15"
+   },
+   "gross": {
+    "Bitter Christmas": 11000,
+    "Club Kid": 266794,
+    "Drummer Boy": 1013417,
+    "Ebenezer": 6700000,
+    "Everest: The Other Side": 29000,
+    "Ghost Soldier": 1550000,
+    "Godzilla Minus Zero": 2110000,
+    "Heart of the Beast": 150000,
+    "How to Rob a Bank": 2232000,
+    "Jimmy": 288053,
+    "Other Mommy": 180000,
+    "Primetime": 8965,
+    "Ramayana: Rise of a Legend": 1415000,
+    "Resident Evil": 125000,
+    "Sense and Sensibility": 42000,
+    "Street Fighter": 190000,
+    "The Only Living Pickpocket in New York": 80000,
+    "Victorian Psycho": 463856,
+    "Whalefall": 14000,
+    "Wild Horse Nine": 1500000,
+    "Wildwood": 1071599,
+    "You Can See Everything": 1551645
+   }
   }
  },
  "delivered": {
